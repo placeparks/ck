@@ -58,4 +58,4 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Sync database schema then start server
-CMD npx prisma db push --skip-generate && node server.js
+CMD node node_modules/prisma/build/index.js db push --skip-generate && node server.js
