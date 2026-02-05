@@ -44,12 +44,16 @@ export async function GET(req: Request) {
     if (!user.instance) {
       return NextResponse.json({
         hasInstance: false,
+        hasPendingConfig: !!user.pendingConfig,
         subscription: user.subscription
       })
     }
 
-    // Check instance health
-    const isHealthy = await checkInstanceHealth(user.instance.id)
+    // Don't health-check instances that are still deploying
+    let isHealthy = false
+    if (user.instance.status !== 'DEPLOYING') {
+      isHealthy = await checkInstanceHealth(user.instance.id)
+    }
 
     return NextResponse.json({
       hasInstance: true,

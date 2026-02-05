@@ -71,6 +71,59 @@ export default function DashboardPage() {
     )
   }
 
+  // User has a subscription (paid) or pending config but instance hasn't been created yet — deployment in progress
+  if (!data?.hasInstance && (data?.subscription?.status === 'ACTIVE' || data?.hasPendingConfig)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-purple-50 to-white">
+        <Card className="max-w-lg">
+          <CardHeader className="text-center">
+            <Activity className="h-16 w-16 mx-auto text-purple-600 mb-4 animate-spin" />
+            <CardTitle className="text-2xl">Deploying Your AI Assistant</CardTitle>
+            <CardDescription className="text-base">
+              Your payment was successful! We&apos;re setting up your bot on Railway now.
+              This usually takes 1-2 minutes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <div className="bg-purple-50 rounded-lg p-4">
+              <p className="text-sm text-purple-700 font-medium">
+                Plan: {data.subscription.plan}
+              </p>
+              <p className="text-xs text-purple-600 mt-1">
+                Your instance is being provisioned...
+              </p>
+            </div>
+            <p className="text-xs text-gray-400">
+              This page refreshes automatically every 10 seconds
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Instance exists but is still deploying
+  if (data?.hasInstance && data?.instance?.status === 'DEPLOYING') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-purple-50 to-white">
+        <Card className="max-w-lg">
+          <CardHeader className="text-center">
+            <Activity className="h-16 w-16 mx-auto text-orange-500 mb-4 animate-spin" />
+            <CardTitle className="text-2xl">Deployment In Progress</CardTitle>
+            <CardDescription className="text-base">
+              Your bot is being deployed to Railway. This usually takes 1-2 minutes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <p className="text-xs text-gray-400">
+              This page refreshes automatically every 10 seconds
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   if (!data?.hasInstance) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-purple-50 to-white">

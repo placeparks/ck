@@ -141,60 +141,69 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Encrypt API keys before storing
   const encryptedApiKey = encrypt(config.apiKey)
 
-  // Deploy OpenClaw instance
-  try {
-    const deployment = await deployInstance(userId, config)
+  // Fire off deployment in the background — do NOT await.
+  // Stripe webhooks timeout after ~10s, but Railway deployment takes up to 2 min.
+  // deployInstance() creates a DEPLOYING instance record immediately,
+  // so the dashboard can show progress while Railway provisions the container.
+  deployAndConfigure(userId, config, encryptedApiKey)
+    .then(() => console.log(`🚀 Background deployment completed for user ${userId}`))
+    .catch((err) => console.error(`❌ Background deployment failed for user ${userId}:`, err))
+}
 
-    // Save configuration to database
-    await prisma.configuration.create({
-      data: {
-        instanceId: deployment.instanceId,
-        provider: config.provider,
-        apiKey: encryptedApiKey,
-        model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
-        webSearchEnabled: config.webSearchEnabled || false,
-        braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
-        browserEnabled: config.browserEnabled || false,
-        ttsEnabled: config.ttsEnabled || false,
-        elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
-        canvasEnabled: config.canvasEnabled || false,
-        cronEnabled: config.cronEnabled || false,
-        memoryEnabled: config.memoryEnabled || false,
-        workspace: config.workspace,
-        agentName: config.agentName,
-        systemPrompt: config.systemPrompt,
-        thinkingMode: config.thinkingMode || 'high',
-        sessionMode: config.sessionMode || 'per-sender',
-        dmPolicy: config.dmPolicy || 'pairing',
-        fullConfig: config,
-        channels: {
-          create: config.channels.map((channel: any) => ({
-            type: channel.type,
-            enabled: true,
-            config: channel.config,
-            botUsername: channel.config.botUsername,
-            phoneNumber: channel.config.phoneNumber,
-            inviteLink: channel.config.inviteLink
-          }))
-        }
+/**
+ * Deploy the instance and save configuration.
+ * Runs outside the webhook request lifecycle so Stripe gets a fast 200 response.
+ */
+async function deployAndConfigure(
+  userId: string,
+  config: UserConfiguration,
+  encryptedApiKey: string
+) {
+  const deployment = await deployInstance(userId, config)
+
+  // Save configuration to database
+  await prisma.configuration.create({
+    data: {
+      instanceId: deployment.instanceId,
+      provider: config.provider,
+      apiKey: encryptedApiKey,
+      model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
+      webSearchEnabled: config.webSearchEnabled || false,
+      braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
+      browserEnabled: config.browserEnabled || false,
+      ttsEnabled: config.ttsEnabled || false,
+      elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
+      canvasEnabled: config.canvasEnabled || false,
+      cronEnabled: config.cronEnabled || false,
+      memoryEnabled: config.memoryEnabled || false,
+      workspace: config.workspace,
+      agentName: config.agentName,
+      systemPrompt: config.systemPrompt,
+      thinkingMode: config.thinkingMode || 'high',
+      sessionMode: config.sessionMode || 'per-sender',
+      dmPolicy: config.dmPolicy || 'pairing',
+      fullConfig: config,
+      channels: {
+        create: config.channels.map((channel: any) => ({
+          type: channel.type,
+          enabled: true,
+          config: channel.config,
+          botUsername: channel.config?.botUsername,
+          phoneNumber: channel.config?.phoneNumber,
+          inviteLink: channel.config?.inviteLink
+        }))
       }
-    })
+    }
+  })
 
-    // Clean up pending config from database
-    await prisma.user.update({
-      where: { id: userId },
-      data: { pendingConfig: Prisma.DbNull }
-    })
+  // Clean up pending config from database
+  await prisma.user.update({
+    where: { id: userId },
+    data: { pendingConfig: Prisma.DbNull }
+  })
 
-    console.log(`🚀 Successfully deployed instance for user ${userId}`)
-    console.log(`   Instance ID: ${deployment.instanceId}`)
-    console.log(`   Container ID: ${deployment.containerId}`)
-
-  } catch (error) {
-    console.error('❌ Deployment failed:', error)
-    console.error('Error details:', error instanceof Error ? error.message : error)
-    // TODO: Send notification to admin and user
-  }
+  console.log(`   Instance ID: ${deployment.instanceId}`)
+  console.log(`   Container ID: ${deployment.containerId}`)
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
