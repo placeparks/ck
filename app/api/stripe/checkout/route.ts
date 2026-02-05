@@ -81,7 +81,6 @@ export async function POST(req: Request) {
     })
 
     // Create Stripe checkout session
-    const selectedPlan = PLANS[plan as keyof typeof PLANS]
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
