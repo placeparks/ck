@@ -147,7 +147,7 @@ prisma/
 Dashboard API routes authenticate the user via NextAuth session, find their instance, then proxy requests to the OpenClaw instance's REST API via `accessUrl`. Example in `app/api/instance/sessions/route.ts`.
 
 ### Config Hot-Reload
-The `config/route.ts` PATCH endpoint rebuilds OpenClaw config JSON and pushes it to Railway via `updateServiceInstance()` + `redeployService()`, allowing config changes without manual redeployment.
+The `config/route.ts` PATCH endpoint rebuilds OpenClaw config JSON and pushes it to Railway via `setVariables()` + `redeployService()`, allowing config changes without manual redeployment.
 
 ### Deployment Flow
 1. User completes onboarding (6 steps) or selects template

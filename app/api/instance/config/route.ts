@@ -138,8 +138,8 @@ export async function PATCH(req: Request) {
         const railway = new RailwayClient()
 
         // Update the OPENCLAW_CONFIG env var
-        await railway.updateServiceInstance(user.instance.containerId, {
-          envVars: { OPENCLAW_CONFIG: JSON.stringify(openclawConfig) },
+        await railway.setVariables(user.instance.containerId, {
+          OPENCLAW_CONFIG: JSON.stringify(openclawConfig),
         })
 
         // Redeploy to pick up new config

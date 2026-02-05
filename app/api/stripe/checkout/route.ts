@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       where: { userId: user.id }
     })
 
-    if (existingSubscription) {
+    if (existingSubscription?.stripeCustomerId) {
       customerId = existingSubscription.stripeCustomerId
     } else {
       const customer = await stripe.customers.create({
