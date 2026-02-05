@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --version:*)",
+      "Bash(npm --version)",
+      "Bash(test -f .env)",
+      "Bash(npm install)",
+      "Bash(docker --version:*)",
+      "Bash(node -e:*)",
+      "Bash(npm run:*)",
+      "Bash(docker network create:*)",
+      "Bash(npx prisma studio)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(curl:*)",
+      "Bash(stripe trigger:*)",
+      "Bash(taskkill:*)",
+      "Bash(npx tsx test-webhook.ts)",
+      "Bash(powershell:*)",
+      "Bash(tasklist:*)",
+      "Bash(npx tsx:*)",
+      "Bash(timeout /t 1)",
+      "Bash(where:*)",
+      "Bash(\"C:\\\\Program Files\\\\Docker\\\\Docker\\\\resources\\\\bin\\\\docker.exe\" ps)",
+      "Bash(npm install:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.railway.com)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next lint:*)"
+    ]
+  }
+}
