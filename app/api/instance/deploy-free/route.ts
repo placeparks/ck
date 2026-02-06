@@ -79,43 +79,61 @@ export async function POST(req: Request) {
     // Encrypt API keys
     const encryptedApiKey = encrypt(config.apiKey)
 
-    // Deploy instance
-    const deployment = await deployInstance(user.id, config)
-
-    // Save configuration
-    await prisma.configuration.create({
-      data: {
-        instanceId: deployment.instanceId,
-        provider: config.provider,
-        apiKey: encryptedApiKey,
-        model: config.model || 'anthropic/claude-sonnet-4-5',
-        webSearchEnabled: config.webSearchEnabled || false,
-        braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
-        browserEnabled: config.browserEnabled || false,
-        ttsEnabled: config.ttsEnabled || false,
-        elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
-        canvasEnabled: config.canvasEnabled || false,
-        cronEnabled: config.cronEnabled || false,
-        memoryEnabled: config.memoryEnabled || false,
-        workspace: config.workspace,
-        agentName: config.agentName,
-        systemPrompt: config.systemPrompt,
-        thinkingMode: config.thinkingMode || 'high',
-        sessionMode: config.sessionMode || 'per-sender',
-        dmPolicy: config.dmPolicy || 'pairing',
-        fullConfig: config,
-        channels: {
-          create: (config.channels || []).map((channel: any) => ({
-            type: channel.type,
-            enabled: true,
-            config: channel.config || {},
-            botUsername: channel.config?.botUsername,
-            phoneNumber: channel.config?.phoneNumber,
-            inviteLink: channel.config?.inviteLink
-          }))
-        }
+    // Deploy instance — may partially fail but Instance record is created early
+    let deployment: any
+    try {
+      deployment = await deployInstance(user.id, config)
+    } catch (err) {
+      console.error('❌ deployInstance failed:', err)
+      // Instance record may still exist from early creation in deployInstance
+      const instance = await prisma.instance.findUnique({ where: { userId: user.id } })
+      if (instance) {
+        deployment = { instanceId: instance.id, containerId: instance.containerId }
+      } else {
+        throw err
       }
+    }
+
+    // Save configuration — always, even if deploy had errors
+    const existingConfig = await prisma.configuration.findUnique({
+      where: { instanceId: deployment.instanceId }
     })
+
+    if (!existingConfig) {
+      await prisma.configuration.create({
+        data: {
+          instanceId: deployment.instanceId,
+          provider: config.provider,
+          apiKey: encryptedApiKey,
+          model: config.model || 'anthropic/claude-sonnet-4-5',
+          webSearchEnabled: config.webSearchEnabled || false,
+          braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
+          browserEnabled: config.browserEnabled || false,
+          ttsEnabled: config.ttsEnabled || false,
+          elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
+          canvasEnabled: config.canvasEnabled || false,
+          cronEnabled: config.cronEnabled || false,
+          memoryEnabled: config.memoryEnabled || false,
+          workspace: config.workspace,
+          agentName: config.agentName,
+          systemPrompt: config.systemPrompt,
+          thinkingMode: config.thinkingMode || 'high',
+          sessionMode: config.sessionMode || 'per-sender',
+          dmPolicy: config.dmPolicy || 'pairing',
+          fullConfig: config,
+          channels: {
+            create: (config.channels || []).map((channel: any) => ({
+              type: channel.type,
+              enabled: true,
+              config: channel.config || {},
+              botUsername: channel.config?.botUsername,
+              phoneNumber: channel.config?.phoneNumber,
+              inviteLink: channel.config?.inviteLink
+            }))
+          }
+        }
+      })
+    }
 
     return NextResponse.json({
       success: true,

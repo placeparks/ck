@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { generateOpenClawConfig, buildEnvironmentVariables } from '@/lib/openclaw/config-builder'
-import { RailwayClient } from '@/lib/railway/client'
+import { syncConfigToRailway } from '@/lib/railway/sync-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -107,47 +106,11 @@ export async function PATCH(req: Request) {
       include: { channels: true },
     })
 
-    // Rebuild OpenClaw config and push to Railway
+    // Push updated config to Railway and redeploy
     if (user.instance.containerId) {
-      try {
-        const userConfig = {
-          provider: updatedConfig.provider as any,
-          apiKey: updatedConfig.apiKey,
-          model: updatedConfig.model,
-          failoverModel: updatedConfig.failoverModel || undefined,
-          channels: updatedConfig.channels.map(ch => ({
-            type: ch.type as any,
-            config: ch.config as Record<string, any>,
-          })),
-          webSearchEnabled: updatedConfig.webSearchEnabled,
-          braveApiKey: updatedConfig.braveApiKey || undefined,
-          browserEnabled: updatedConfig.browserEnabled,
-          ttsEnabled: updatedConfig.ttsEnabled,
-          elevenlabsApiKey: updatedConfig.elevenlabsApiKey || undefined,
-          canvasEnabled: updatedConfig.canvasEnabled,
-          cronEnabled: updatedConfig.cronEnabled,
-          memoryEnabled: updatedConfig.memoryEnabled,
-          agentName: updatedConfig.agentName || undefined,
-          systemPrompt: updatedConfig.systemPrompt || undefined,
-          thinkingMode: updatedConfig.thinkingMode,
-          sessionMode: updatedConfig.sessionMode,
-          dmPolicy: updatedConfig.dmPolicy,
-        }
-
-        const openclawConfig = generateOpenClawConfig(userConfig)
-        const railway = new RailwayClient()
-
-        // Update the OPENCLAW_CONFIG env var
-        await railway.setVariables(user.instance.containerId, {
-          OPENCLAW_CONFIG: JSON.stringify(openclawConfig),
-        })
-
-        // Redeploy to pick up new config
-        await railway.redeployService(user.instance.containerId)
-      } catch (railwayError) {
-        console.error('Failed to push config to Railway:', railwayError)
-        // Config is still saved in DB even if Railway push fails
-      }
+      syncConfigToRailway(user.instance.id).catch(err => {
+        console.error('Failed to push config to Railway:', err)
+      })
     }
 
     return NextResponse.json({ success: true, updated: Object.keys(updates) })

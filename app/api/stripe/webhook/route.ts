@@ -194,44 +194,66 @@ async function deployAndConfigure(
   config: UserConfiguration,
   encryptedApiKey: string
 ) {
-  const deployment = await deployInstance(userId, config)
+  let deployment: any
 
-  // Save configuration to database
-  await prisma.configuration.create({
-    data: {
-      instanceId: deployment.instanceId,
-      provider: config.provider,
-      apiKey: encryptedApiKey,
-      model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
-      webSearchEnabled: config.webSearchEnabled || false,
-      braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
-      browserEnabled: config.browserEnabled || false,
-      ttsEnabled: config.ttsEnabled || false,
-      elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
-      canvasEnabled: config.canvasEnabled || false,
-      cronEnabled: config.cronEnabled || false,
-      memoryEnabled: config.memoryEnabled || false,
-      workspace: config.workspace,
-      agentName: config.agentName,
-      systemPrompt: config.systemPrompt,
-      thinkingMode: config.thinkingMode || 'high',
-      sessionMode: config.sessionMode || 'per-sender',
-      dmPolicy: config.dmPolicy || 'pairing',
-      fullConfig: config as unknown as Prisma.InputJsonObject,
-      channels: {
-        create: config.channels.map((channel: any) => ({
-          type: channel.type,
-          enabled: true,
-          config: channel.config,
-          botUsername: channel.config?.botUsername,
-          phoneNumber: channel.config?.phoneNumber,
-          inviteLink: channel.config?.inviteLink
-        }))
-      }
+  try {
+    // Deploy creates the Instance record (DEPLOYING status) and Railway service
+    deployment = await deployInstance(userId, config)
+  } catch (err) {
+    console.error(`❌ deployInstance failed for user ${userId}:`, err)
+    // Even if deployment fails, the Instance record may exist (created early in deployInstance).
+    // Find it so we can still save the configuration.
+    const instance = await prisma.instance.findUnique({ where: { userId } })
+    if (instance) {
+      deployment = { instanceId: instance.id, containerId: instance.containerId, containerName: instance.containerName }
+    } else {
+      throw err // No instance at all, nothing to configure
     }
+  }
+
+  // Save configuration to database — always, even if deploy had errors.
+  // This ensures channels/config are accessible from dashboard for retry/redeploy.
+  const existingConfig = await prisma.configuration.findUnique({
+    where: { instanceId: deployment.instanceId }
   })
 
-  // Clean up pending config from database
+  if (!existingConfig) {
+    await prisma.configuration.create({
+      data: {
+        instanceId: deployment.instanceId,
+        provider: config.provider,
+        apiKey: encryptedApiKey,
+        model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
+        webSearchEnabled: config.webSearchEnabled || false,
+        braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
+        browserEnabled: config.browserEnabled || false,
+        ttsEnabled: config.ttsEnabled || false,
+        elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
+        canvasEnabled: config.canvasEnabled || false,
+        cronEnabled: config.cronEnabled || false,
+        memoryEnabled: config.memoryEnabled || false,
+        workspace: config.workspace,
+        agentName: config.agentName,
+        systemPrompt: config.systemPrompt,
+        thinkingMode: config.thinkingMode || 'high',
+        sessionMode: config.sessionMode || 'per-sender',
+        dmPolicy: config.dmPolicy || 'pairing',
+        fullConfig: config as unknown as Prisma.InputJsonObject,
+        channels: {
+          create: config.channels.map((channel: any) => ({
+            type: channel.type,
+            enabled: true,
+            config: channel.config,
+            botUsername: channel.config?.botUsername,
+            phoneNumber: channel.config?.phoneNumber,
+            inviteLink: channel.config?.inviteLink
+          }))
+        }
+      }
+    })
+  }
+
+  // Clean up pending config
   await prisma.user.update({
     where: { id: userId },
     data: { pendingConfig: Prisma.DbNull }

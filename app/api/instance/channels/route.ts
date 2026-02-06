@@ -3,11 +3,11 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { ChannelType } from '@prisma/client'
+import { syncConfigToRailway } from '@/lib/railway/sync-config'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Helper to verify user owns the channel
 async function getUserWithConfig(email: string) {
   return prisma.user.findUnique({
     where: { email },
@@ -23,7 +23,17 @@ async function getUserWithConfig(email: string) {
   })
 }
 
-// GET - List channels for the user's instance
+/**
+ * Fire-and-forget: push updated config to Railway and redeploy.
+ * Errors are logged but don't fail the API response.
+ */
+function triggerSync(instanceId: string) {
+  syncConfigToRailway(instanceId).catch(err => {
+    console.error('[Channels] Failed to sync config to Railway:', err)
+  })
+}
+
+// GET - List channels
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
@@ -59,7 +69,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing channel type' }, { status: 400 })
     }
 
-    // Validate channel type
     if (!Object.values(ChannelType).includes(type as ChannelType)) {
       return NextResponse.json({ error: 'Invalid channel type' }, { status: 400 })
     }
@@ -70,13 +79,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No instance configuration found' }, { status: 404 })
     }
 
-    // Check if channel type already exists
     const exists = user.instance.config.channels.some(c => c.type === type)
     if (exists) {
       return NextResponse.json({ error: 'Channel type already configured' }, { status: 409 })
     }
 
-    // Create the channel
     const channel = await prisma.channel.create({
       data: {
         configId: user.instance.config.id,
@@ -89,18 +96,10 @@ export async function POST(req: Request) {
       }
     })
 
-    // Update fullConfig JSON to include the new channel
-    const currentFullConfig = (user.instance.config.fullConfig as any) || {}
-    const channelKey = type.toLowerCase().replace('_', '')
-    currentFullConfig.channels = currentFullConfig.channels || {}
-    currentFullConfig.channels[channelKey] = { enabled: true, ...config }
+    // Sync to Railway (redeploys with new channel)
+    triggerSync(user.instance.id)
 
-    await prisma.configuration.update({
-      where: { id: user.instance.config.id },
-      data: { fullConfig: currentFullConfig }
-    })
-
-    return NextResponse.json({ channel })
+    return NextResponse.json({ channel, redeploying: true })
 
   } catch (error) {
     console.error('Channel create error:', error)
@@ -122,7 +121,6 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
     }
 
-    // Verify channel belongs to user
     const user = await getUserWithConfig(session.user.email)
 
     const userChannelIds = user?.instance?.config?.channels.map(c => c.id) || []
@@ -135,7 +133,12 @@ export async function PATCH(req: Request) {
       data: { enabled }
     })
 
-    return NextResponse.json({ channel: updated })
+    // Sync to Railway (redeploys with channel enabled/disabled)
+    if (user?.instance) {
+      triggerSync(user.instance.id)
+    }
+
+    return NextResponse.json({ channel: updated, redeploying: true })
 
   } catch (error) {
     console.error('Channel update error:', error)
@@ -157,7 +160,6 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Missing channelId or config' }, { status: 400 })
     }
 
-    // Verify channel belongs to user
     const user = await getUserWithConfig(session.user.email)
 
     const userChannel = user?.instance?.config?.channels.find(c => c.id === channelId)
@@ -165,7 +167,6 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
     }
 
-    // Update channel config
     const updated = await prisma.channel.update({
       where: { id: channelId },
       data: {
@@ -176,20 +177,12 @@ export async function PUT(req: Request) {
       }
     })
 
-    // Also update fullConfig JSON
-    if (user?.instance?.config) {
-      const currentFullConfig = (user.instance.config.fullConfig as any) || {}
-      const channelKey = userChannel.type.toLowerCase().replace('_', '')
-      if (currentFullConfig.channels) {
-        currentFullConfig.channels[channelKey] = { enabled: userChannel.enabled, ...config }
-      }
-      await prisma.configuration.update({
-        where: { id: user.instance.config.id },
-        data: { fullConfig: currentFullConfig }
-      })
+    // Sync to Railway (redeploys with updated config)
+    if (user?.instance) {
+      triggerSync(user.instance.id)
     }
 
-    return NextResponse.json({ channel: updated })
+    return NextResponse.json({ channel: updated, redeploying: true })
 
   } catch (error) {
     console.error('Channel config update error:', error)
@@ -211,7 +204,6 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'Missing channelId' }, { status: 400 })
     }
 
-    // Verify channel belongs to user
     const user = await getUserWithConfig(session.user.email)
 
     const userChannel = user?.instance?.config?.channels.find(c => c.id === channelId)
@@ -219,25 +211,16 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'Channel not found' }, { status: 404 })
     }
 
-    // Delete the channel
     await prisma.channel.delete({
       where: { id: channelId }
     })
 
-    // Also remove from fullConfig JSON
-    if (user?.instance?.config) {
-      const currentFullConfig = (user.instance.config.fullConfig as any) || {}
-      const channelKey = userChannel.type.toLowerCase().replace('_', '')
-      if (currentFullConfig.channels && currentFullConfig.channels[channelKey]) {
-        delete currentFullConfig.channels[channelKey]
-      }
-      await prisma.configuration.update({
-        where: { id: user.instance.config.id },
-        data: { fullConfig: currentFullConfig }
-      })
+    // Sync to Railway (redeploys without deleted channel)
+    if (user?.instance) {
+      triggerSync(user.instance.id)
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, redeploying: true })
 
   } catch (error) {
     console.error('Channel delete error:', error)
