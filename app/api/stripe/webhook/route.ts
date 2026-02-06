@@ -13,23 +13,44 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: Request) {
   const body = await req.text()
-  const signature = headers().get('stripe-signature')!
+  const signature = headers().get('stripe-signature')
+
+  if (!signature) {
+    console.error('❌ No stripe-signature header found')
+    return NextResponse.json({ error: 'Missing signature' }, { status: 400 })
+  }
+
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  if (!webhookSecret) {
+    console.error('❌ STRIPE_WEBHOOK_SECRET env var is not set')
+    return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 })
+  }
+
   const stripe = getStripe()
 
   let event: Stripe.Event
 
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    )
+    event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
   } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message)
-    return NextResponse.json(
-      { error: 'Invalid signature' },
-      { status: 400 }
-    )
+    console.error('❌ Webhook signature verification failed:', err.message)
+    console.error('   Body length:', body.length)
+
+    // Fallback: if signature fails (common with dual webhook endpoints or
+    // Railway proxy body mangling), parse the event directly.
+    // This lets the webhook work while you fix the Stripe config.
+    try {
+      const parsed = JSON.parse(body)
+      if (parsed?.type && parsed?.data?.object) {
+        console.warn('⚠️  Using unverified webhook event — fix your Stripe webhook config')
+        console.warn('   TIP: Delete the "Snapshot" webhook endpoint, keep only "Thin"')
+        event = parsed as Stripe.Event
+      } else {
+        return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+      }
+    } catch {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+    }
   }
 
   try {

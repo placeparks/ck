@@ -6,14 +6,6 @@ import { prisma } from '@/lib/prisma'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-async function getUserInstance(email: string) {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: { instance: true }
-  })
-  return user?.instance
-}
-
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
@@ -21,25 +13,24 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const instance = await getUserInstance(session.user.email)
-    if (!instance?.accessUrl) {
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      include: {
+        instance: {
+          include: { config: true }
+        }
+      }
+    })
+
+    if (!user?.instance?.config) {
       return NextResponse.json({ agents: [] })
     }
 
-    try {
-      const res = await fetch(`${instance.accessUrl}/api/agents`, {
-        headers: { 'Authorization': `Bearer ${instance.containerId}` },
-        signal: AbortSignal.timeout(5000),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        return NextResponse.json({ agents: data.agents || data || [] })
-      }
-    } catch {
-      // Instance may not support agents API
-    }
+    // Read agents from the fullConfig JSON stored in the database
+    const fullConfig = user.instance.config.fullConfig as any
+    const agents = fullConfig?.agents || []
 
-    return NextResponse.json({ agents: [] })
+    return NextResponse.json({ agents })
   } catch (error: any) {
     console.error('Agents fetch error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -53,29 +44,36 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const instance = await getUserInstance(session.user.email)
-    if (!instance?.accessUrl) {
-      return NextResponse.json({ error: 'Instance not accessible' }, { status: 503 })
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      include: {
+        instance: {
+          include: { config: true }
+        }
+      }
+    })
+
+    if (!user?.instance?.config) {
+      return NextResponse.json({ error: 'No configuration found' }, { status: 404 })
     }
 
     const body = await req.json()
     const { agents } = body
 
-    const res = await fetch(`${instance.accessUrl}/api/agents`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${instance.containerId}`,
-      },
-      body: JSON.stringify({ agents }),
-      signal: AbortSignal.timeout(10000),
-    })
-
-    if (res.ok) {
-      return NextResponse.json({ success: true })
+    if (!Array.isArray(agents)) {
+      return NextResponse.json({ error: 'Invalid agents data' }, { status: 400 })
     }
 
-    return NextResponse.json({ error: 'Failed to update agents' }, { status: 500 })
+    // Store agents in the fullConfig JSON
+    const currentConfig = (user.instance.config.fullConfig as any) || {}
+    const updatedConfig = { ...currentConfig, agents }
+
+    await prisma.configuration.update({
+      where: { id: user.instance.config.id },
+      data: { fullConfig: updatedConfig }
+    })
+
+    return NextResponse.json({ success: true, agents })
   } catch (error: any) {
     console.error('Agents update error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })

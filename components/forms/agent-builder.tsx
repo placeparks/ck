@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -50,9 +50,10 @@ const MODEL_OPTIONS = [
 
 export default function AgentBuilder({ instanceId, accessUrl }: AgentBuilderProps) {
   const [agents, setAgents] = useState<Agent[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<string | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [newAgent, setNewAgent] = useState<Omit<Agent, 'id'>>({
@@ -62,6 +63,26 @@ export default function AgentBuilder({ instanceId, accessUrl }: AgentBuilderProp
     channels: [],
     tools: [],
   })
+
+  // Load existing agents on mount
+  useEffect(() => {
+    async function loadAgents() {
+      try {
+        const res = await fetch('/api/instance/agents')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.agents && data.agents.length > 0) {
+            setAgents(data.agents)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load agents:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadAgents()
+  }, [])
 
   const addAgent = () => {
     if (!newAgent.name) return
@@ -124,16 +145,23 @@ export default function AgentBuilder({ instanceId, accessUrl }: AgentBuilderProp
   }
 
   const saveAgents = async () => {
-    if (!accessUrl) return
     setSaving(true)
+    setSaveStatus(null)
     try {
-      await fetch('/api/instance/agents', {
+      const res = await fetch('/api/instance/agents', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agents }),
       })
+      if (res.ok) {
+        setSaveStatus('saved')
+        setTimeout(() => setSaveStatus(null), 3000)
+      } else {
+        setSaveStatus('error')
+      }
     } catch (error) {
       console.error('Failed to save agents:', error)
+      setSaveStatus('error')
     } finally {
       setSaving(false)
     }
@@ -244,7 +272,12 @@ export default function AgentBuilder({ instanceId, accessUrl }: AgentBuilderProp
           )}
 
           {/* Agents List */}
-          {agents.length === 0 && !showCreate ? (
+          {loading ? (
+            <div className="text-center py-12 text-gray-500">
+              <Bot className="h-10 w-10 mx-auto mb-2 opacity-30 animate-pulse" />
+              <p className="text-sm">Loading agents...</p>
+            </div>
+          ) : agents.length === 0 && !showCreate ? (
             <div className="text-center py-12 text-gray-500">
               <Bot className="h-10 w-10 mx-auto mb-2 opacity-30" />
               <p className="font-medium">No agents configured</p>
@@ -408,7 +441,13 @@ export default function AgentBuilder({ instanceId, accessUrl }: AgentBuilderProp
 
           {/* Save Button */}
           {agents.length > 0 && (
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex items-center justify-end gap-3">
+              {saveStatus === 'saved' && (
+                <span className="text-sm text-green-600 font-medium">Saved successfully!</span>
+              )}
+              {saveStatus === 'error' && (
+                <span className="text-sm text-red-600 font-medium">Save failed. Try again.</span>
+              )}
               <Button onClick={saveAgents} disabled={saving}>
                 {saving ? 'Saving...' : 'Save Agent Configuration'}
               </Button>

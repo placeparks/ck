@@ -19,6 +19,15 @@ const channelIcons: Record<string, any> = {
   GOOGLE_CHAT: Mail,
   MATRIX: Grid,
   MSTEAMS: Users,
+  LINE: MessageSquare,
+  FEISHU: MessageSquare,
+  MATTERMOST: Hash,
+  WEBCHAT: MessageSquare,
+  NOSTR: Zap,
+  TWITCH: MessageSquare,
+  ZALO: MessageSquare,
+  BLUEBUBBLES: Phone,
+  NEXTCLOUD_TALK: MessageSquare,
 }
 
 const channelNames: Record<string, string> = {
@@ -30,6 +39,15 @@ const channelNames: Record<string, string> = {
   GOOGLE_CHAT: 'Google Chat',
   MATRIX: 'Matrix',
   MSTEAMS: 'MS Teams',
+  LINE: 'LINE',
+  FEISHU: 'Feishu / Lark',
+  MATTERMOST: 'Mattermost',
+  WEBCHAT: 'WebChat',
+  NOSTR: 'Nostr',
+  TWITCH: 'Twitch',
+  ZALO: 'Zalo',
+  BLUEBUBBLES: 'iMessage (BlueBubbles)',
+  NEXTCLOUD_TALK: 'Nextcloud Talk',
 }
 
 interface Channel {

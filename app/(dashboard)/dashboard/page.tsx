@@ -363,7 +363,7 @@ export default function DashboardPage() {
           {/* Channels Tab */}
           <TabsContent value="channels">
             <ChannelManager
-              channels={instance.config?.channels || []}
+              channels={instance.channels || instance.config?.channels || []}
               onRefresh={fetchStatus}
             />
           </TabsContent>
