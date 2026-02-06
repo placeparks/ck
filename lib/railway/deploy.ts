@@ -99,6 +99,9 @@ export async function deployInstance(
       console.warn('⚠️  Failed to persist containerId (will retry later):', err)
     }
 
+    // Small delay to let Railway propagate the new service internally
+    await sleep(3000)
+
     // --- Override start command so the config JSON is written before OpenClaw starts ---
     // The auto-deploy triggered by createService may finish before this update lands;
     // redeployService below ensures the corrected command is actually used.
@@ -168,12 +171,14 @@ async function retryRailwayCooldown<T>(
       return await fn()
     } catch (error: any) {
       const message = String(error?.message || '').toLowerCase()
-      const isCooldown =
+      const isRetryable =
         message.includes('too recently updated') ||
         message.includes('rate limit') ||
-        message.includes('rate limited')
+        message.includes('rate limited') ||
+        message.includes('http 400') ||
+        message.includes('problem processing request')
 
-      if (!isCooldown) throw error
+      if (!isRetryable) throw error
 
       const elapsed = Date.now() - startedAt
       if (elapsed >= RAILWAY_COOLDOWN_MAX_MS) {
