@@ -78,6 +78,8 @@ export async function deployInstance(
     envVars.OPENCLAW_CONFIG = JSON.stringify(openclawConfig)
     // Gateway token required by OpenClaw (generate a random one per instance)
     envVars.OPENCLAW_GATEWAY_TOKEN = crypto.randomUUID()
+    // OpenClaw listens on port 18789 by default — tell Railway to route traffic there
+    envVars.PORT = process.env.OPENCLAW_PORT || '18789'
 
     // --- Create Railway service (image + env vars, auto-deploys) ---
     const { id: serviceId } = await railway.createService(
@@ -113,13 +115,41 @@ export async function deployInstance(
     // --- Override start command so the config JSON is written before OpenClaw starts ---
     // The auto-deploy triggered by createService may finish before this update lands;
     // redeployService below ensures the corrected command is actually used.
-    // NOTE: Railway runs containers as non-root, so we use /tmp instead of /root
-    const openclawCmd = process.env.OPENCLAW_CMD || 'openclaw'
-    const configDir = '/tmp/.openclaw'
-    const startCmd =
-      `mkdir -p ${configDir} && ` +
-      `printf '%s' "$OPENCLAW_CONFIG" > ${configDir}/openclaw.json && ` +
-      `exec ${openclawCmd} --config ${configDir}/openclaw.json`
+    //
+    // OpenClaw Docker image:
+    // - Runs as user "node" (non-root)
+    // - Expects config at ~/.openclaw/openclaw.json (i.e. /home/node/.openclaw/openclaw.json)
+    // - Listens on port 18789 (WebSocket gateway)
+    // - The image's default entrypoint starts the gateway automatically
+    //
+    // We write the config to the expected path, then exec the original entrypoint.
+    // If OPENCLAW_CMD is set, use that as the startup command; otherwise let
+    // the image's default entrypoint/CMD handle it.
+    const openclawCmd = process.env.OPENCLAW_CMD || ''
+    const configDir = '/home/node/.openclaw'
+    const configDirFallback = '/tmp/.openclaw'
+
+    let startCmd: string
+    if (openclawCmd) {
+      // Custom command specified — use it directly
+      startCmd =
+        `mkdir -p ${configDir} ${configDirFallback} && ` +
+        `printf '%s' "$OPENCLAW_CONFIG" > ${configDir}/openclaw.json && ` +
+        `cp ${configDir}/openclaw.json ${configDirFallback}/openclaw.json 2>/dev/null; ` +
+        `exec ${openclawCmd}`
+    } else {
+      // Use the Docker image's default entrypoint
+      // Write config, then start the gateway using node (the OpenClaw Docker image is Node-based)
+      startCmd =
+        `mkdir -p ${configDir} ${configDirFallback} 2>/dev/null; ` +
+        `printf '%s' "$OPENCLAW_CONFIG" > ${configDir}/openclaw.json && ` +
+        `cp ${configDir}/openclaw.json ${configDirFallback}/openclaw.json 2>/dev/null; ` +
+        `echo "Config written to ${configDir}/openclaw.json" && ` +
+        `if command -v openclaw >/dev/null 2>&1; then exec openclaw; ` +
+        `elif [ -f /app/dist/index.js ]; then exec node /app/dist/index.js; ` +
+        `elif [ -f /app/index.js ]; then exec node /app/index.js; ` +
+        `else echo "Starting with default entrypoint..." && exec node server.js; fi`
+    }
 
     await railway.updateServiceInstance(serviceId, { startCommand: startCmd })
     await railway.redeployService(serviceId)

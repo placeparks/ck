@@ -4,10 +4,12 @@ import { useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   MessageSquare, Send, Hash, Zap, Phone, Mail, Grid, Users,
-  Plus, Settings, Power, PowerOff, RefreshCw, AlertCircle,
-  CheckCircle2, XCircle, Wifi, WifiOff
+  Plus, Settings, Power, PowerOff, RefreshCw,
+  CheckCircle2, XCircle, Wifi, WifiOff, Save, Trash2, X, Edit2
 } from 'lucide-react'
 
 const channelIcons: Record<string, any> = {
@@ -50,6 +52,74 @@ const channelNames: Record<string, string> = {
   NEXTCLOUD_TALK: 'Nextcloud Talk',
 }
 
+// Define required fields per channel type
+const channelFields: Record<string, { key: string; label: string; type?: string; placeholder: string }[]> = {
+  WHATSAPP: [
+    { key: 'allowlist', label: 'Allowed Numbers (comma-separated)', placeholder: '+1234567890, +0987654321' },
+  ],
+  TELEGRAM: [
+    { key: 'botToken', label: 'Bot Token', placeholder: '123456:ABC-DEF...' },
+    { key: 'botUsername', label: 'Bot Username', placeholder: 'mybot' },
+  ],
+  DISCORD: [
+    { key: 'token', label: 'Bot Token', placeholder: 'Your Discord bot token' },
+    { key: 'applicationId', label: 'Application ID', placeholder: '123456789012345678' },
+  ],
+  SLACK: [
+    { key: 'botToken', label: 'Bot Token (xoxb-...)', placeholder: 'xoxb-...' },
+    { key: 'appToken', label: 'App Token (xapp-...)', placeholder: 'xapp-...' },
+  ],
+  SIGNAL: [
+    { key: 'phoneNumber', label: 'Phone Number', placeholder: '+1234567890' },
+  ],
+  GOOGLE_CHAT: [
+    { key: 'serviceAccount', label: 'Service Account JSON', placeholder: '{"type":"service_account",...}' },
+  ],
+  MATRIX: [
+    { key: 'homeserverUrl', label: 'Homeserver URL', placeholder: 'https://matrix.org' },
+    { key: 'accessToken', label: 'Access Token', placeholder: 'syt_...' },
+    { key: 'userId', label: 'User ID', placeholder: '@bot:matrix.org' },
+  ],
+  MSTEAMS: [
+    { key: 'appId', label: 'App ID', placeholder: 'Your MS Teams app ID' },
+    { key: 'appPassword', label: 'App Password', placeholder: 'Your MS Teams app password' },
+  ],
+  LINE: [
+    { key: 'channelAccessToken', label: 'Channel Access Token', placeholder: 'Your LINE channel access token' },
+    { key: 'channelSecret', label: 'Channel Secret', placeholder: 'Your LINE channel secret' },
+  ],
+  FEISHU: [
+    { key: 'appId', label: 'App ID', placeholder: 'Feishu app ID' },
+    { key: 'appSecret', label: 'App Secret', placeholder: 'Feishu app secret' },
+  ],
+  MATTERMOST: [
+    { key: 'url', label: 'Server URL', placeholder: 'https://mattermost.example.com' },
+    { key: 'token', label: 'Bot Token', placeholder: 'Your Mattermost bot token' },
+  ],
+  WEBCHAT: [],
+  NOSTR: [
+    { key: 'privateKey', label: 'Private Key (nsec)', placeholder: 'nsec1...' },
+  ],
+  TWITCH: [
+    { key: 'username', label: 'Bot Username', placeholder: 'your_bot_name' },
+    { key: 'oauthToken', label: 'OAuth Token', placeholder: 'oauth:...' },
+    { key: 'channels', label: 'Channels (comma-separated)', placeholder: 'channel1, channel2' },
+  ],
+  ZALO: [
+    { key: 'oaId', label: 'OA ID', placeholder: 'Your Zalo OA ID' },
+    { key: 'accessToken', label: 'Access Token', placeholder: 'Your Zalo access token' },
+  ],
+  BLUEBUBBLES: [
+    { key: 'serverUrl', label: 'Server URL', placeholder: 'http://localhost:1234' },
+    { key: 'password', label: 'Password', placeholder: 'BlueBubbles server password' },
+  ],
+  NEXTCLOUD_TALK: [
+    { key: 'serverUrl', label: 'Server URL', placeholder: 'https://nextcloud.example.com' },
+    { key: 'username', label: 'Username', placeholder: 'bot_user' },
+    { key: 'password', label: 'Password', placeholder: 'Your Nextcloud password' },
+  ],
+}
+
 interface Channel {
   id: string
   type: string
@@ -67,6 +137,13 @@ interface ChannelManagerProps {
 
 export default function ChannelManager({ channels, onRefresh }: ChannelManagerProps) {
   const [togglingChannel, setTogglingChannel] = useState<string | null>(null)
+  const [editingChannel, setEditingChannel] = useState<string | null>(null)
+  const [editConfig, setEditConfig] = useState<Record<string, string>>({})
+  const [showAddChannel, setShowAddChannel] = useState(false)
+  const [newChannelType, setNewChannelType] = useState('')
+  const [newChannelConfig, setNewChannelConfig] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const toggleChannel = async (channelId: string, currentEnabled: boolean) => {
     setTogglingChannel(channelId)
@@ -74,10 +151,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
       await fetch('/api/instance/channels', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channelId,
-          enabled: !currentEnabled
-        })
+        body: JSON.stringify({ channelId, enabled: !currentEnabled })
       })
       onRefresh()
     } catch (error) {
@@ -87,9 +161,77 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
     }
   }
 
-  const getChannelStatus = (channel: Channel) => {
-    if (!channel.enabled) return { label: 'Disabled', color: 'bg-gray-500', icon: PowerOff }
-    return { label: 'Connected', color: 'bg-green-500', icon: CheckCircle2 }
+  const startEditing = (channel: Channel) => {
+    setEditingChannel(channel.id)
+    setEditConfig(channel.config || {})
+  }
+
+  const saveChannelConfig = async (channelId: string) => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/instance/channels', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, config: editConfig })
+      })
+      if (res.ok) {
+        setStatusMsg({ type: 'success', text: 'Channel updated!' })
+        setEditingChannel(null)
+        onRefresh()
+      } else {
+        setStatusMsg({ type: 'error', text: 'Failed to update channel' })
+      }
+    } catch (error) {
+      setStatusMsg({ type: 'error', text: 'Failed to update channel' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setStatusMsg(null), 3000)
+    }
+  }
+
+  const addChannel = async () => {
+    if (!newChannelType) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/instance/channels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: newChannelType, config: newChannelConfig })
+      })
+      if (res.ok) {
+        setStatusMsg({ type: 'success', text: 'Channel added!' })
+        setShowAddChannel(false)
+        setNewChannelType('')
+        setNewChannelConfig({})
+        onRefresh()
+      } else {
+        const data = await res.json()
+        setStatusMsg({ type: 'error', text: data.error || 'Failed to add channel' })
+      }
+    } catch (error) {
+      setStatusMsg({ type: 'error', text: 'Failed to add channel' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setStatusMsg(null), 3000)
+    }
+  }
+
+  const deleteChannel = async (channelId: string) => {
+    if (!confirm('Are you sure you want to remove this channel?')) return
+    try {
+      const res = await fetch('/api/instance/channels', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId })
+      })
+      if (res.ok) {
+        setStatusMsg({ type: 'success', text: 'Channel removed!' })
+        onRefresh()
+      }
+    } catch (error) {
+      setStatusMsg({ type: 'error', text: 'Failed to remove channel' })
+    }
+    setTimeout(() => setStatusMsg(null), 3000)
   }
 
   const getAccessInfo = (channel: Channel) => {
@@ -105,6 +247,10 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
     }
   }
 
+  // Available channel types that aren't already configured
+  const configuredTypes = channels.map(c => c.type)
+  const availableTypes = Object.keys(channelNames).filter(t => !configuredTypes.includes(t))
+
   return (
     <Card>
       <CardHeader>
@@ -116,73 +262,181 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
             </CardTitle>
             <CardDescription>Manage your connected messaging platforms</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefresh}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={onRefresh}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+            <Button size="sm" onClick={() => setShowAddChannel(true)} disabled={availableTypes.length === 0}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Channel
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
+        {/* Status Message */}
+        {statusMsg && (
+          <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${
+            statusMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+          }`}>
+            {statusMsg.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+            {statusMsg.text}
+          </div>
+        )}
+
+        {/* Add Channel Form */}
+        {showAddChannel && (
+          <div className="mb-6 p-4 border-2 border-dashed border-purple-200 rounded-lg bg-purple-50/50">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-sm">Add New Channel</h4>
+              <button onClick={() => { setShowAddChannel(false); setNewChannelType('') }}>
+                <X className="h-4 w-4 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <Label className="text-sm">Channel Type</Label>
+                <select
+                  value={newChannelType}
+                  onChange={(e) => { setNewChannelType(e.target.value); setNewChannelConfig({}) }}
+                  className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">Select a channel...</option>
+                  {availableTypes.map(type => (
+                    <option key={type} value={type}>{channelNames[type]}</option>
+                  ))}
+                </select>
+              </div>
+
+              {newChannelType && channelFields[newChannelType]?.map((field) => (
+                <div key={field.key}>
+                  <Label className="text-sm">{field.label}</Label>
+                  <Input
+                    type={field.type || 'text'}
+                    value={newChannelConfig[field.key] || ''}
+                    onChange={(e) => setNewChannelConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    placeholder={field.placeholder}
+                    className="mt-1"
+                  />
+                </div>
+              ))}
+
+              {newChannelType && (
+                <Button onClick={addChannel} disabled={saving} className="w-full">
+                  {saving ? 'Adding...' : `Add ${channelNames[newChannelType]}`}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Channel List */}
         {!channels || channels.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <WifiOff className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p className="font-medium">No channels configured</p>
-            <p className="text-sm mt-1">Add channels from your instance settings</p>
+            <p className="text-sm mt-1">Click &quot;Add Channel&quot; to get started</p>
           </div>
         ) : (
           <div className="space-y-3">
             {channels.map((channel) => {
               const Icon = channelIcons[channel.type] || MessageSquare
-              const status = getChannelStatus(channel)
-              const StatusIcon = status.icon
+              const isEditing = editingChannel === channel.id
 
               return (
-                <div
-                  key={channel.id}
-                  className={`flex items-center justify-between p-4 border rounded-lg transition ${
-                    channel.enabled ? 'hover:bg-gray-50' : 'bg-gray-50/50 opacity-75'
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2.5 rounded-lg ${channel.enabled ? 'bg-purple-100' : 'bg-gray-100'}`}>
-                      <Icon className={`h-5 w-5 ${channel.enabled ? 'text-purple-600' : 'text-gray-400'}`} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-semibold">
-                          {channelNames[channel.type] || channel.type}
-                        </span>
-                        <Badge
-                          className={`text-xs ${status.color} text-white`}
-                        >
-                          <StatusIcon className="h-3 w-3 mr-1" />
-                          {status.label}
-                        </Badge>
+                <div key={channel.id} className="border rounded-lg overflow-hidden">
+                  <div
+                    className={`flex items-center justify-between p-4 transition ${
+                      channel.enabled ? 'hover:bg-gray-50' : 'bg-gray-50/50 opacity-75'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`p-2.5 rounded-lg ${channel.enabled ? 'bg-purple-100' : 'bg-gray-100'}`}>
+                        <Icon className={`h-5 w-5 ${channel.enabled ? 'text-purple-600' : 'text-gray-400'}`} />
                       </div>
-                      <p className="text-sm text-gray-500">{getAccessInfo(channel)}</p>
+                      <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="font-semibold">
+                            {channelNames[channel.type] || channel.type}
+                          </span>
+                          <Badge className={`text-xs ${channel.enabled ? 'bg-green-500' : 'bg-gray-500'} text-white`}>
+                            {channel.enabled ? (
+                              <><CheckCircle2 className="h-3 w-3 mr-1" /> Connected</>
+                            ) : (
+                              <><PowerOff className="h-3 w-3 mr-1" /> Disabled</>
+                            )}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-500">{getAccessInfo(channel)}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => isEditing ? setEditingChannel(null) : startEditing(channel)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleChannel(channel.id, channel.enabled)}
+                        disabled={togglingChannel === channel.id}
+                      >
+                        {channel.enabled ? (
+                          <><PowerOff className="h-4 w-4 mr-1" /> Disable</>
+                        ) : (
+                          <><Power className="h-4 w-4 mr-1" /> Enable</>
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteChannel(channel.id)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => toggleChannel(channel.id, channel.enabled)}
-                      disabled={togglingChannel === channel.id}
-                    >
-                      {channel.enabled ? (
-                        <>
-                          <PowerOff className="h-4 w-4 mr-1" />
-                          Disable
-                        </>
-                      ) : (
-                        <>
-                          <Power className="h-4 w-4 mr-1" />
-                          Enable
-                        </>
+                  {/* Edit Panel */}
+                  {isEditing && (
+                    <div className="border-t bg-gray-50 p-4 space-y-3">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        Configure {channelNames[channel.type]}
+                      </h4>
+                      {(channelFields[channel.type] || []).map((field) => (
+                        <div key={field.key}>
+                          <Label className="text-sm">{field.label}</Label>
+                          <Input
+                            type={field.type || 'text'}
+                            value={editConfig[field.key] || ''}
+                            onChange={(e) => setEditConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
+                            placeholder={field.placeholder}
+                            className="mt-1"
+                          />
+                        </div>
+                      ))}
+                      {(channelFields[channel.type] || []).length === 0 && (
+                        <p className="text-sm text-gray-500">This channel has no additional configuration.</p>
                       )}
-                    </Button>
-                  </div>
+                      <div className="flex gap-2 pt-2">
+                        <Button size="sm" onClick={() => saveChannelConfig(channel.id)} disabled={saving}>
+                          <Save className="h-4 w-4 mr-1" />
+                          {saving ? 'Saving...' : 'Save Changes'}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setEditingChannel(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}

@@ -110,25 +110,39 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
                    Plan.YEARLY
 
   // Create or update subscription
-  await prisma.subscription.upsert({
-    where: { userId },
-    create: {
-      userId,
-      stripeCustomerId: session.customer as string,
-      stripeSubscriptionId: subscription.id,
-      stripePriceId: subscription.items.data[0].price.id,
-      stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
-      plan: planEnum,
-      status: SubscriptionStatus.ACTIVE
-    },
-    update: {
-      stripeSubscriptionId: subscription.id,
-      stripePriceId: subscription.items.data[0].price.id,
-      stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
-      plan: planEnum,
-      status: SubscriptionStatus.ACTIVE
-    }
+  // First check if user already has a subscription (e.g. from FREE tier)
+  const existingSub = await prisma.subscription.findUnique({
+    where: { userId }
   })
+
+  if (existingSub) {
+    // Update existing subscription with Stripe details
+    await prisma.subscription.update({
+      where: { id: existingSub.id },
+      data: {
+        stripeCustomerId: session.customer as string,
+        stripeSubscriptionId: subscription.id,
+        stripePriceId: subscription.items.data[0].price.id,
+        stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        plan: planEnum,
+        status: SubscriptionStatus.ACTIVE,
+        messagesUsed: 0, // Reset usage on upgrade
+      }
+    })
+  } else {
+    // Create new subscription
+    await prisma.subscription.create({
+      data: {
+        userId,
+        stripeCustomerId: session.customer as string,
+        stripeSubscriptionId: subscription.id,
+        stripePriceId: subscription.items.data[0].price.id,
+        stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        plan: planEnum,
+        status: SubscriptionStatus.ACTIVE
+      }
+    })
+  }
 
   // Get user's configuration from database
   console.log('📦 Fetching user configuration from database...')
