@@ -92,6 +92,24 @@ export async function deployInstance(
       data: { containerId: serviceId },
     })
 
+    // --- Generate a public domain for the service ---
+    let accessUrl = ''
+    try {
+      accessUrl = await railway.createServiceDomain(serviceId)
+      console.log(`[Railway] Domain created: ${accessUrl}`)
+    } catch (err) {
+      console.warn('[Railway] Domain creation failed, will try to fetch existing:', err)
+    }
+
+    // If domain creation returned empty, check for existing domains
+    if (!accessUrl) {
+      const domains = await railway.getServiceDomains(serviceId)
+      if (domains.length > 0) {
+        accessUrl = domains[0]
+        console.log(`[Railway] Using existing domain: ${accessUrl}`)
+      }
+    }
+
     // --- Override start command so the config JSON is written before OpenClaw starts ---
     // The auto-deploy triggered by createService may finish before this update lands;
     // redeployService below ensures the corrected command is actually used.
@@ -107,7 +125,11 @@ export async function deployInstance(
     await railway.redeployService(serviceId)
 
     // --- Poll until the deployment is live ---
-    const accessUrl = await waitForDeployment(railway, serviceId)
+    const deployUrl = await waitForDeployment(railway, serviceId)
+    // Prefer the domain URL, fallback to deployment URL
+    if (!accessUrl && deployUrl) {
+      accessUrl = deployUrl
+    }
 
     await prisma.instance.update({
       where: { id: instance.id },
@@ -184,9 +206,10 @@ export async function stopInstance(instanceId: string): Promise<void> {
 
   const railway = new RailwayClient()
   const deployment = await railway.getLatestDeployment(instance.containerId)
-  if (!deployment) throw new Error('No active deployment found')
 
-  await railway.removeDeployment(deployment.id)
+  if (deployment) {
+    await railway.removeDeployment(deployment.id)
+  }
 
   await prisma.instance.update({
     where: { id: instanceId },
@@ -222,34 +245,53 @@ export async function restartInstance(instanceId: string): Promise<void> {
     data: { status: InstanceStatus.RESTARTING },
   })
 
-  const railway = new RailwayClient()
-  const deployment = await railway.getLatestDeployment(instance.containerId)
+  try {
+    const railway = new RailwayClient()
+    const deployment = await railway.getLatestDeployment(instance.containerId)
 
-  if (deployment && deployment.status === 'SUCCESS') {
-    await railway.restartDeployment(deployment.id)
-  } else {
-    await railway.redeployService(instance.containerId)
+    if (deployment && deployment.status === 'SUCCESS') {
+      // Restart the running deployment in-place
+      await railway.restartDeployment(deployment.id)
+    } else {
+      // Trigger a fresh redeploy
+      await railway.redeployService(instance.containerId)
+    }
+
+    await prisma.instance.update({
+      where: { id: instanceId },
+      data: { status: InstanceStatus.RUNNING },
+    })
+
+    await logDeployment(instanceId, 'RESTART', 'SUCCESS', 'Instance restarted')
+  } catch (error: any) {
+    console.error('[Restart] Failed:', error)
+    // Still set back to a valid state rather than leaving as RESTARTING
+    await prisma.instance.update({
+      where: { id: instanceId },
+      data: { status: InstanceStatus.ERROR },
+    })
+    await logDeployment(instanceId, 'RESTART', 'FAILED', 'Restart failed', error.message)
+    throw error
   }
-
-  await prisma.instance.update({
-    where: { id: instanceId },
-    data: { status: InstanceStatus.RUNNING },
-  })
-
-  await logDeployment(instanceId, 'RESTART', 'SUCCESS', 'Instance restarted')
 }
 
 export async function getInstanceLogs(instanceId: string, tail = 100): Promise<string> {
   const instance = await prisma.instance.findUnique({ where: { id: instanceId } })
   if (!instance) throw new Error('Instance not found')
-  if (!instance.containerId) throw new Error('Instance has no Railway service ID')
+  if (!instance.containerId) return 'No Railway service ID configured.'
 
-  const railway = new RailwayClient()
-  const deployment = await railway.getLatestDeployment(instance.containerId)
-  if (!deployment) return 'No deployments found.'
+  try {
+    const railway = new RailwayClient()
+    const deployment = await railway.getLatestDeployment(instance.containerId)
+    if (!deployment) return 'No deployments found.'
 
-  const logs = await railway.getLogs(deployment.id, tail)
-  return logs.map(l => `[${l.timestamp}] [${l.severity}] ${l.message}`).join('\n')
+    const logs = await railway.getLogs(deployment.id, tail)
+    if (logs.length === 0) return 'No logs available yet.'
+    return logs.map(l => `[${l.timestamp}] [${l.severity}] ${l.message}`).join('\n')
+  } catch (error: any) {
+    console.error('[Logs] Failed to fetch:', error)
+    return `Failed to fetch logs: ${error.message}`
+  }
 }
 
 export async function checkInstanceHealth(instanceId: string): Promise<boolean> {
@@ -257,20 +299,69 @@ export async function checkInstanceHealth(instanceId: string): Promise<boolean> 
     const instance = await prisma.instance.findUnique({ where: { id: instanceId } })
     if (!instance || !instance.containerId) return false
 
-    const railway = new RailwayClient()
+    let railway: RailwayClient
+    try {
+      railway = new RailwayClient()
+    } catch (err) {
+      console.warn('[Health] Railway client init failed:', err)
+      // If Railway env vars aren't set, just use the DB status
+      return instance.status === 'RUNNING'
+    }
+
     const deployment = await railway.getLatestDeployment(instance.containerId)
-    const isHealthy = deployment?.status === 'SUCCESS'
+
+    if (!deployment) {
+      // No deployment found — might be deploying or deleted
+      return instance.status === 'RUNNING'
+    }
+
+    // Map Railway deployment status to instance health
+    // Railway statuses: BUILDING, DEPLOYING, SUCCESS, FAILED, CRASHED, REMOVED, SLEEPING, SKIPPED, WAITING, QUEUED
+    const healthyStatuses = ['SUCCESS']
+    const transientStatuses = ['BUILDING', 'DEPLOYING', 'WAITING', 'QUEUED']
+    const failedStatuses = ['FAILED', 'CRASHED', 'REMOVED']
+
+    const isHealthy = healthyStatuses.includes(deployment.status)
+    const isTransient = transientStatuses.includes(deployment.status)
+    const isFailed = failedStatuses.includes(deployment.status)
+
+    let newStatus: InstanceStatus
+    if (isHealthy) {
+      newStatus = InstanceStatus.RUNNING
+    } else if (isTransient) {
+      newStatus = InstanceStatus.DEPLOYING
+    } else if (deployment.status === 'SLEEPING') {
+      newStatus = InstanceStatus.STOPPED
+    } else if (isFailed) {
+      newStatus = InstanceStatus.ERROR
+    } else {
+      // Unknown status — keep current
+      newStatus = instance.status as InstanceStatus
+    }
+
+    // Also grab the access URL if we don't have one
+    let updateData: any = {
+      lastHealthCheck: new Date(),
+      status: newStatus,
+    }
+
+    if (!instance.accessUrl && instance.containerId) {
+      try {
+        const domains = await railway.getServiceDomains(instance.containerId)
+        if (domains.length > 0) {
+          updateData.accessUrl = domains[0]
+        }
+      } catch { /* best-effort */ }
+    }
 
     await prisma.instance.update({
       where: { id: instanceId },
-      data: {
-        lastHealthCheck: new Date(),
-        status: isHealthy ? InstanceStatus.RUNNING : InstanceStatus.ERROR,
-      },
+      data: updateData,
     })
 
     return isHealthy
-  } catch {
+  } catch (error) {
+    console.error('[Health] checkInstanceHealth error:', error)
     return false
   }
 }

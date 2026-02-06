@@ -190,15 +190,21 @@ export default function DashboardPage() {
               <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm ${
                 instance.status === 'RUNNING'
                   ? 'bg-green-50 text-green-700'
-                  : instance.status === 'ERROR'
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-gray-100 text-gray-600'
+                  : instance.status === 'DEPLOYING' || instance.status === 'RESTARTING'
+                    ? 'bg-yellow-50 text-yellow-700'
+                    : instance.status === 'ERROR'
+                      ? 'bg-red-50 text-red-700'
+                      : 'bg-gray-100 text-gray-600'
               }`}>
                 <div className={`w-2 h-2 rounded-full ${
                   instance.status === 'RUNNING' ? 'bg-green-500' :
+                  instance.status === 'DEPLOYING' || instance.status === 'RESTARTING' ? 'bg-yellow-500 animate-pulse' :
                   instance.status === 'ERROR' ? 'bg-red-500' : 'bg-gray-400'
                 }`} />
-                {instance.isHealthy ? 'Online' : 'Offline'}
+                {instance.status === 'RUNNING' ? 'Online' :
+                 instance.status === 'DEPLOYING' ? 'Deploying' :
+                 instance.status === 'RESTARTING' ? 'Restarting' :
+                 instance.status === 'ERROR' ? 'Error' : 'Offline'}
               </div>
               <Button
                 variant="ghost"

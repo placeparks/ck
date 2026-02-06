@@ -85,12 +85,25 @@ export default function InstanceStatus({ instance, onAction, actionLoading }: In
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="flex items-center space-x-3">
-            <div className={`p-2.5 rounded-lg ${instance.isHealthy ? 'bg-green-100' : 'bg-red-100'}`}>
-              <Activity className={`h-5 w-5 ${instance.isHealthy ? 'text-green-600' : 'text-red-600'}`} />
+            <div className={`p-2.5 rounded-lg ${
+              instance.status === 'RUNNING' ? 'bg-green-100' :
+              instance.status === 'DEPLOYING' || instance.status === 'RESTARTING' ? 'bg-yellow-100' :
+              'bg-red-100'
+            }`}>
+              <Activity className={`h-5 w-5 ${
+                instance.status === 'RUNNING' ? 'text-green-600' :
+                instance.status === 'DEPLOYING' || instance.status === 'RESTARTING' ? 'text-yellow-600' :
+                'text-red-600'
+              }`} />
             </div>
             <div>
               <p className="text-xs text-gray-500">Health</p>
-              <p className="font-semibold text-sm">{instance.isHealthy ? 'Healthy' : 'Down'}</p>
+              <p className="font-semibold text-sm">
+                {instance.status === 'RUNNING' ? 'Healthy' :
+                 instance.status === 'DEPLOYING' ? 'Deploying' :
+                 instance.status === 'RESTARTING' ? 'Restarting' :
+                 instance.status === 'ERROR' ? 'Error' : 'Down'}
+              </p>
             </div>
           </div>
 

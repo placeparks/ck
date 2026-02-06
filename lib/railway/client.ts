@@ -193,44 +193,112 @@ export class RailwayClient {
 
   /** Return the most recent deployment for a service. */
   async getLatestDeployment(serviceId: string): Promise<Deployment | null> {
-    const { deployments } = await this.graphql<{
-      deployments: { edges: { node: Deployment }[] }
-    }>(`
-      query deployments($input: DeploymentListInput!) {
-        deployments(input: $input) {
-          edges {
-            node {
-              id
-              status
-              url
-              createdAt
+    try {
+      const { deployments } = await this.graphql<{
+        deployments: { edges: { node: Deployment }[] }
+      }>(`
+        query deployments($input: DeploymentListInput!, $first: Int) {
+          deployments(input: $input, first: $first) {
+            edges {
+              node {
+                id
+                status
+                url
+                staticUrl
+                createdAt
+              }
             }
           }
         }
-      }
-    `, {
-      input: {
-        serviceId,
+      `, {
+        input: {
+          projectId: this.projectId,
+          environmentId: this.environmentId,
+          serviceId,
+        },
         first: 1,
-      },
-    })
+      })
 
-    return deployments.edges[0]?.node ?? null
+      const node = deployments.edges[0]?.node ?? null
+      // Railway uses staticUrl for public domains; fall back to url
+      if (node && !node.url && (node as any).staticUrl) {
+        node.url = (node as any).staticUrl
+      }
+      return node
+    } catch (error) {
+      console.error('[Railway] getLatestDeployment failed:', error)
+      return null
+    }
   }
 
   /** Fetch log entries for a deployment. */
   async getLogs(deploymentId: string, limit = 100): Promise<LogEntry[]> {
-    const { deploymentLogs } = await this.graphql<{ deploymentLogs: LogEntry[] }>(`
-      query deploymentLogs($deploymentId: String!, $limit: Int) {
-        deploymentLogs(deploymentId: $deploymentId, limit: $limit) {
-          timestamp
-          message
-          severity
+    try {
+      const { deploymentLogs } = await this.graphql<{ deploymentLogs: LogEntry[] }>(`
+        query deploymentLogs($deploymentId: String!, $limit: Int) {
+          deploymentLogs(deploymentId: $deploymentId, limit: $limit) {
+            timestamp
+            message
+            severity
+          }
         }
-      }
-    `, { deploymentId, limit })
+      `, { deploymentId, limit })
 
-    return deploymentLogs
+      return deploymentLogs || []
+    } catch (error) {
+      console.error('[Railway] getLogs failed:', error)
+      return []
+    }
+  }
+
+  /** Generate a Railway service domain so the container is publicly accessible. */
+  async createServiceDomain(serviceId: string): Promise<string> {
+    try {
+      const { serviceDomainCreate } = await this.graphql<{
+        serviceDomainCreate: { domain: string }
+      }>(`
+        mutation serviceDomainCreate($input: ServiceDomainCreateInput!) {
+          serviceDomainCreate(input: $input) {
+            domain
+          }
+        }
+      `, {
+        input: {
+          serviceId,
+          environmentId: this.environmentId,
+        },
+      })
+      return `https://${serviceDomainCreate.domain}`
+    } catch (error: any) {
+      // Domain may already exist
+      console.warn('[Railway] createServiceDomain error (may already exist):', error.message)
+      return ''
+    }
+  }
+
+  /** Get existing domains for a service. */
+  async getServiceDomains(serviceId: string): Promise<string[]> {
+    try {
+      const { domains } = await this.graphql<{
+        domains: { serviceDomains: { domain: string }[] }
+      }>(`
+        query domains($projectId: String!, $environmentId: String!, $serviceId: String!) {
+          domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
+            serviceDomains {
+              domain
+            }
+          }
+        }
+      `, {
+        projectId: this.projectId,
+        environmentId: this.environmentId,
+        serviceId,
+      })
+      return (domains?.serviceDomains || []).map((d: any) => `https://${d.domain}`)
+    } catch (error) {
+      console.error('[Railway] getServiceDomains failed:', error)
+      return []
+    }
   }
 
   /** Remove the active deployment — pauses the service without deleting it. */

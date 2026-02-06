@@ -49,29 +49,51 @@ export async function GET(req: Request) {
       })
     }
 
-    // Don't health-check instances that are still deploying
+    // Don't health-check instances that are still deploying or restarting
     let isHealthy = false
-    if (user.instance.status !== 'DEPLOYING') {
-      isHealthy = await checkInstanceHealth(user.instance.id)
+    const skipHealthStatuses = ['DEPLOYING', 'RESTARTING']
+    if (!skipHealthStatuses.includes(user.instance.status)) {
+      try {
+        isHealthy = await checkInstanceHealth(user.instance.id)
+      } catch (error) {
+        console.error('Health check failed:', error)
+        // Don't crash the status endpoint if health check fails
+        isHealthy = user.instance.status === 'RUNNING'
+      }
+    } else {
+      // If deploying/restarting, don't mark as healthy but don't error either
+      isHealthy = false
     }
+
+    // Re-fetch instance after health check (it may have updated status/accessUrl)
+    const freshInstance = await prisma.instance.findUnique({
+      where: { id: user.instance.id },
+      include: {
+        config: {
+          include: { channels: true }
+        }
+      }
+    })
+
+    const inst = freshInstance || user.instance
 
     return NextResponse.json({
       hasInstance: true,
       instance: {
-        id: user.instance.id,
-        status: user.instance.status,
-        port: user.instance.port,
-        accessUrl: user.instance.accessUrl,
-        qrCode: user.instance.qrCode,
-        lastHealthCheck: user.instance.lastHealthCheck,
-        createdAt: user.instance.createdAt,
+        id: inst.id,
+        status: inst.status,
+        port: inst.port,
+        accessUrl: inst.accessUrl,
+        qrCode: inst.qrCode,
+        lastHealthCheck: inst.lastHealthCheck,
+        createdAt: inst.createdAt,
         isHealthy,
-        channels: user.instance.config?.channels || [],
-        config: user.instance.config ? {
-          provider: user.instance.config.provider,
-          model: user.instance.config.model,
-          agentName: user.instance.config.agentName,
-          channels: user.instance.config.channels,
+        channels: inst.config?.channels || [],
+        config: inst.config ? {
+          provider: inst.config.provider,
+          model: inst.config.model,
+          agentName: inst.config.agentName,
+          channels: inst.config.channels,
         } : null,
       },
       subscription: user.subscription

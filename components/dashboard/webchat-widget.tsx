@@ -23,13 +23,15 @@ export default function WebChatWidget({ instanceId, accessUrl, agentName }: WebC
   const [primaryColor, setPrimaryColor] = useState('#7c3aed')
   const [greeting, setGreeting] = useState(`Hi! I'm ${agentName || 'your AI assistant'}. How can I help?`)
 
-  const widgetUrl = accessUrl ? `${accessUrl}/webchat` : 'https://your-instance.railway.app/webchat'
+  // Widget script is served from our own API, not from the user's OpenClaw instance
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const widgetScriptUrl = `${baseUrl}/api/webchat/widget`
 
   const embedCode = `<!-- Kainat WebChat Widget -->
 <script>
   (function() {
     var w = document.createElement('script');
-    w.src = '${widgetUrl}/widget.js';
+    w.src = '${widgetScriptUrl}';
     w.async = true;
     w.dataset.instanceId = '${instanceId}';
     w.dataset.theme = '${theme}';
@@ -40,11 +42,16 @@ export default function WebChatWidget({ instanceId, accessUrl, agentName }: WebC
   })();
 </script>`
 
-  const iframeCode = `<iframe
-  src="${widgetUrl}?theme=${theme}&color=${encodeURIComponent(primaryColor)}"
-  style="border:none; width:400px; height:600px; border-radius:12px; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"
-  title="${agentName || 'Chat'}"
-></iframe>`
+  const iframeCode = `<!-- Kainat WebChat - Inline Embed -->
+<!-- For inline embed, use the floating widget script above instead.
+     The widget creates a chat bubble on your page automatically. -->
+<script src="${widgetScriptUrl}"
+  data-instance-id="${instanceId}"
+  data-theme="${theme}"
+  data-position="${position}"
+  data-color="${primaryColor}"
+  data-greeting="${greeting}">
+</script>`
 
   const copyCode = (code: string) => {
     navigator.clipboard.writeText(code)
