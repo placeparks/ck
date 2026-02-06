@@ -105,13 +105,18 @@ export async function deployInstance(
     // --- Override start command so the config JSON is written before OpenClaw starts ---
     // The auto-deploy triggered by createService may finish before this update lands;
     // redeployService below ensures the corrected command is actually used.
-    // NOTE: Railway runs containers as non-root, so we use /tmp instead of /root
-    const openclawCmd = process.env.OPENCLAW_CMD || 'openclaw'
-    const configDir = '/tmp/.openclaw'
+    //
+    // Docker image runs as user "node" (home = /home/node).
+    // OpenClaw gateway reads config from ~/.openclaw/openclaw.json by default.
+    // We write the config there, then start the gateway.
+    // Docker image has no "openclaw" binary in PATH.
+    // The image CMD is: node dist/index.js gateway --allow-unconfigured
+    // We write config to the default path the gateway reads from.
+    const configDir = '/home/node/.openclaw'
     const startCmd =
       `mkdir -p ${configDir} && ` +
       `printf '%s' "$OPENCLAW_CONFIG" > ${configDir}/openclaw.json && ` +
-      `exec ${openclawCmd} --config ${configDir}/openclaw.json`
+      `exec node dist/index.js gateway --allow-unconfigured`
 
     await retryRailwayCooldown(
       () => railway.updateServiceInstance(serviceId, { startCommand: startCmd }),
