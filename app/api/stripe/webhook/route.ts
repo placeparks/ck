@@ -203,7 +203,7 @@ async function deployAndConfigure(
       thinkingMode: config.thinkingMode || 'high',
       sessionMode: config.sessionMode || 'per-sender',
       dmPolicy: config.dmPolicy || 'pairing',
-      fullConfig: config,
+      fullConfig: config as unknown as Prisma.InputJsonObject,
       channels: {
         create: config.channels.map((channel: any) => ({
           type: channel.type,
