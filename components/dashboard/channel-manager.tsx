@@ -52,11 +52,9 @@ const channelNames: Record<string, string> = {
   NEXTCLOUD_TALK: 'Nextcloud Talk',
 }
 
-// Define required fields per channel type
-const channelFields: Record<string, { key: string; label: string; type?: string; placeholder: string }[]> = {
-  WHATSAPP: [
-    { key: 'allowlist', label: 'Allowed Numbers (comma-separated)', placeholder: '+1234567890, +0987654321' },
-  ],
+// Credential fields per channel type
+const channelCredentialFields: Record<string, { key: string; label: string; type?: string; placeholder: string }[]> = {
+  WHATSAPP: [],
   TELEGRAM: [
     { key: 'botToken', label: 'Bot Token', placeholder: '123456:ABC-DEF...' },
     { key: 'botUsername', label: 'Bot Username', placeholder: 'mybot' },
@@ -120,6 +118,23 @@ const channelFields: Record<string, { key: string; label: string; type?: string;
   ],
 }
 
+// Channels that support DM policies
+const channelsWithDmPolicy = ['WHATSAPP', 'TELEGRAM', 'DISCORD', 'SLACK', 'SIGNAL', 'MATRIX', 'MSTEAMS', 'LINE', 'NOSTR']
+// Channels that support group policies
+const channelsWithGroupPolicy = ['WHATSAPP', 'TELEGRAM', 'DISCORD', 'SLACK', 'SIGNAL', 'MSTEAMS']
+
+const dmPolicyOptions = [
+  { value: 'pairing', label: 'Pairing (default)', description: 'Unknown senders get a pairing code that must be approved' },
+  { value: 'allowlist', label: 'Allowlist only', description: 'Only users in the allowlist can message' },
+  { value: 'open', label: 'Open (public)', description: 'Anyone can DM the bot' },
+  { value: 'disabled', label: 'Disabled', description: 'Ignore all inbound DMs' },
+]
+
+const groupPolicyOptions = [
+  { value: 'allowlist', label: 'Allowlist only', description: 'Bot only responds in allowed groups' },
+  { value: 'open', label: 'Open', description: 'Bot responds in any group' },
+]
+
 interface Channel {
   id: string
   type: string
@@ -138,10 +153,10 @@ interface ChannelManagerProps {
 export default function ChannelManager({ channels, onRefresh }: ChannelManagerProps) {
   const [togglingChannel, setTogglingChannel] = useState<string | null>(null)
   const [editingChannel, setEditingChannel] = useState<string | null>(null)
-  const [editConfig, setEditConfig] = useState<Record<string, string>>({})
+  const [editConfig, setEditConfig] = useState<Record<string, any>>({})
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [newChannelType, setNewChannelType] = useState('')
-  const [newChannelConfig, setNewChannelConfig] = useState<Record<string, string>>({})
+  const [newChannelConfig, setNewChannelConfig] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -163,7 +178,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
 
   const startEditing = (channel: Channel) => {
     setEditingChannel(channel.id)
-    setEditConfig(channel.config || {})
+    setEditConfig({ ...channel.config })
   }
 
   const saveChannelConfig = async (channelId: string) => {
@@ -175,7 +190,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
         body: JSON.stringify({ channelId, config: editConfig })
       })
       if (res.ok) {
-        setStatusMsg({ type: 'success', text: 'Channel updated!' })
+        setStatusMsg({ type: 'success', text: 'Channel updated! Restart your instance to apply changes.' })
         setEditingChannel(null)
         onRefresh()
       } else {
@@ -185,7 +200,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
       setStatusMsg({ type: 'error', text: 'Failed to update channel' })
     } finally {
       setSaving(false)
-      setTimeout(() => setStatusMsg(null), 3000)
+      setTimeout(() => setStatusMsg(null), 5000)
     }
   }
 
@@ -199,7 +214,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
         body: JSON.stringify({ type: newChannelType, config: newChannelConfig })
       })
       if (res.ok) {
-        setStatusMsg({ type: 'success', text: 'Channel added!' })
+        setStatusMsg({ type: 'success', text: 'Channel added! Restart your instance to apply.' })
         setShowAddChannel(false)
         setNewChannelType('')
         setNewChannelConfig({})
@@ -212,7 +227,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
       setStatusMsg({ type: 'error', text: 'Failed to add channel' })
     } finally {
       setSaving(false)
-      setTimeout(() => setStatusMsg(null), 3000)
+      setTimeout(() => setStatusMsg(null), 5000)
     }
   }
 
@@ -235,21 +250,121 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
   }
 
   const getAccessInfo = (channel: Channel) => {
+    const policy = channel.config?.dmPolicy || 'pairing'
+    const policyLabel = dmPolicyOptions.find(o => o.value === policy)?.label || policy
     switch (channel.type) {
       case 'WHATSAPP':
-        return channel.phoneNumber || 'QR pairing required'
+        return `DM: ${policyLabel} · ${channel.phoneNumber || 'QR pairing required'}`
       case 'TELEGRAM':
-        return channel.botUsername ? `@${channel.botUsername}` : 'Bot token configured'
+        return `DM: ${policyLabel} · ${channel.botUsername ? `@${channel.botUsername}` : 'Bot configured'}`
       case 'DISCORD':
-        return channel.inviteLink || 'Bot token configured'
+        return `DM: ${policyLabel} · ${channel.inviteLink || 'Bot configured'}`
+      case 'WEBCHAT':
+        return 'Gateway webchat enabled'
       default:
-        return channel.enabled ? 'Connected' : 'Disabled'
+        return channel.enabled ? `DM: ${policyLabel}` : 'Disabled'
     }
   }
 
-  // Available channel types that aren't already configured
   const configuredTypes = channels.map(c => c.type)
   const availableTypes = Object.keys(channelNames).filter(t => !configuredTypes.includes(t))
+
+  const renderPolicyFields = (config: Record<string, any>, setConfig: (c: Record<string, any>) => void, channelType: string) => {
+    const hasDm = channelsWithDmPolicy.includes(channelType)
+    const hasGroup = channelsWithGroupPolicy.includes(channelType)
+    if (!hasDm && !hasGroup) return null
+
+    return (
+      <div className="space-y-4 pt-3 border-t mt-3">
+        <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Access Policies</h5>
+
+        {hasDm && (
+          <>
+            <div>
+              <Label className="text-sm">DM Policy</Label>
+              <select
+                value={config.dmPolicy || 'pairing'}
+                onChange={(e) => setConfig({ ...config, dmPolicy: e.target.value })}
+                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+              >
+                {dmPolicyOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                {dmPolicyOptions.find(o => o.value === (config.dmPolicy || 'pairing'))?.description}
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-sm">DM Allowlist</Label>
+              <Input
+                value={(config.allowlist || []).join(', ')}
+                onChange={(e) => setConfig({
+                  ...config,
+                  allowlist: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
+                })}
+                placeholder="user1, user2, +1234567890"
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Comma-separated list of allowed senders (phone numbers, usernames, or IDs)
+              </p>
+            </div>
+          </>
+        )}
+
+        {hasGroup && (
+          <>
+            <div>
+              <Label className="text-sm">Group Policy</Label>
+              <select
+                value={config.groupPolicy || 'allowlist'}
+                onChange={(e) => setConfig({ ...config, groupPolicy: e.target.value })}
+                className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
+              >
+                {groupPolicyOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                {groupPolicyOptions.find(o => o.value === (config.groupPolicy || 'allowlist'))?.description}
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-sm">Allowed Groups</Label>
+              <Input
+                value={(config.groups || []).join(', ')}
+                onChange={(e) => setConfig({
+                  ...config,
+                  groups: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
+                })}
+                placeholder="group-id-1, group-id-2 (or * for all)"
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Comma-separated group/guild IDs. Use * to allow all groups.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id={`requireMention-${channelType}`}
+                checked={config.requireMention || false}
+                onChange={(e) => setConfig({ ...config, requireMention: e.target.checked })}
+                className="rounded"
+              />
+              <Label htmlFor={`requireMention-${channelType}`} className="text-sm cursor-pointer">
+                Require @mention in groups
+              </Label>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <Card>
@@ -275,7 +390,6 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
         </div>
       </CardHeader>
       <CardContent>
-        {/* Status Message */}
         {statusMsg && (
           <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${
             statusMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
@@ -290,7 +404,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
           <div className="mb-6 p-4 border-2 border-dashed border-purple-200 rounded-lg bg-purple-50/50">
             <div className="flex items-center justify-between mb-4">
               <h4 className="font-semibold text-sm">Add New Channel</h4>
-              <button onClick={() => { setShowAddChannel(false); setNewChannelType('') }}>
+              <button onClick={() => { setShowAddChannel(false); setNewChannelType(''); setNewChannelConfig({}) }}>
                 <X className="h-4 w-4 text-gray-400" />
               </button>
             </div>
@@ -300,7 +414,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
                 <Label className="text-sm">Channel Type</Label>
                 <select
                   value={newChannelType}
-                  onChange={(e) => { setNewChannelType(e.target.value); setNewChannelConfig({}) }}
+                  onChange={(e) => { setNewChannelType(e.target.value); setNewChannelConfig({ dmPolicy: 'pairing', groupPolicy: 'allowlist' }) }}
                   className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
                 >
                   <option value="">Select a channel...</option>
@@ -310,7 +424,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
                 </select>
               </div>
 
-              {newChannelType && channelFields[newChannelType]?.map((field) => (
+              {newChannelType && (channelCredentialFields[newChannelType] || []).map((field) => (
                 <div key={field.key}>
                   <Label className="text-sm">{field.label}</Label>
                   <Input
@@ -322,6 +436,8 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
                   />
                 </div>
               ))}
+
+              {newChannelType && renderPolicyFields(newChannelConfig, setNewChannelConfig, newChannelType)}
 
               {newChannelType && (
                 <Button onClick={addChannel} disabled={saving} className="w-full">
@@ -411,7 +527,9 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
                         <Settings className="h-4 w-4" />
                         Configure {channelNames[channel.type]}
                       </h4>
-                      {(channelFields[channel.type] || []).map((field) => (
+
+                      {/* Credential fields */}
+                      {(channelCredentialFields[channel.type] || []).map((field) => (
                         <div key={field.key}>
                           <Label className="text-sm">{field.label}</Label>
                           <Input
@@ -423,9 +541,16 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
                           />
                         </div>
                       ))}
-                      {(channelFields[channel.type] || []).length === 0 && (
+
+                      {/* Policy fields */}
+                      {renderPolicyFields(editConfig, setEditConfig, channel.type)}
+
+                      {(channelCredentialFields[channel.type] || []).length === 0 &&
+                       !channelsWithDmPolicy.includes(channel.type) &&
+                       !channelsWithGroupPolicy.includes(channel.type) && (
                         <p className="text-sm text-gray-500">This channel has no additional configuration.</p>
                       )}
+
                       <div className="flex gap-2 pt-2">
                         <Button size="sm" onClick={() => saveChannelConfig(channel.id)} disabled={saving}>
                           <Save className="h-4 w-4 mr-1" />

@@ -75,6 +75,7 @@ model Instance {
 
   accessUrl     String?
   serviceUrl    String?         // Internal Railway URL for API calls
+  gatewayToken  String?         // Token for authenticating to the OpenClaw gateway
   qrCode        String?
 
   config        Configuration?

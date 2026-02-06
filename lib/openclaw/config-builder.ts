@@ -47,6 +47,13 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       }
     },
     channels: {},
+    gateway: {
+      http: {
+        endpoints: {
+          chatCompletions: { enabled: true },
+        },
+      },
+    },
     tools: {
       web: {
         search: {
@@ -84,56 +91,98 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
   // Configure channels
   userConfig.channels.forEach(channel => {
     switch (channel.type) {
-      case 'WHATSAPP':
+      case 'WHATSAPP': {
+        const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
+        const groupPolicy = channel.config.groupPolicy || 'allowlist'
+        const groups = channel.config.groups || []
+        const groupsConfig: any = {}
+        if (groupPolicy === 'open') {
+          groupsConfig['*'] = { requireMention: channel.config.requireMention || false }
+        } else if (groups.length > 0) {
+          for (const g of groups) {
+            groupsConfig[g] = { requireMention: channel.config.requireMention || false }
+          }
+        }
         config.channels.whatsapp = {
           enabled: true,
+          dmPolicy,
           allowFrom: channel.config.allowlist || [],
-          dmPolicy: userConfig.dmPolicy || 'pairing',
-          ...(channel.config.groups && { groups: channel.config.groups })
+          ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig })
         }
         break
+      }
 
-      case 'TELEGRAM':
+      case 'TELEGRAM': {
+        const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
+        const groupPolicy = channel.config.groupPolicy || 'allowlist'
+        const groups = channel.config.groups || []
+        const groupsConfig: any = {}
+        if (groupPolicy === 'open') {
+          groupsConfig['*'] = { requireMention: channel.config.requireMention || false }
+        } else if (groups.length > 0) {
+          for (const g of groups) {
+            groupsConfig[g] = { requireMention: channel.config.requireMention || false }
+          }
+        }
         config.channels.telegram = {
           enabled: true,
           botToken: channel.config.botToken,
+          dmPolicy,
           allowFrom: channel.config.allowlist || [],
-          dmPolicy: userConfig.dmPolicy || 'pairing'
+          ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig })
         }
         break
+      }
 
-      case 'DISCORD':
+      case 'DISCORD': {
+        const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
+        const groupPolicy = channel.config.groupPolicy || 'allowlist'
+        const guilds = channel.config.groups || []
+        const guildsConfig: any = {}
+        if (groupPolicy === 'open') {
+          guildsConfig['*'] = { requireMention: channel.config.requireMention || false }
+        } else if (guilds.length > 0) {
+          for (const g of guilds) {
+            guildsConfig[g] = { requireMention: channel.config.requireMention || false }
+          }
+        }
         config.channels.discord = {
           enabled: true,
           token: channel.config.token,
           applicationId: channel.config.applicationId,
           dm: {
-            policy: userConfig.dmPolicy || 'pairing',
+            policy: dmPolicy,
             allowFrom: channel.config.allowlist || []
           },
-          ...(channel.config.guilds && { guilds: channel.config.guilds })
+          ...(Object.keys(guildsConfig).length > 0 && { guilds: guildsConfig })
         }
         break
+      }
 
-      case 'SLACK':
+      case 'SLACK': {
+        const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         config.channels.slack = {
           enabled: true,
           botToken: channel.config.botToken,
           appToken: channel.config.appToken,
           dm: {
-            policy: userConfig.dmPolicy || 'pairing',
+            policy: dmPolicy,
             allowFrom: channel.config.allowlist || []
           }
         }
         break
+      }
 
-      case 'SIGNAL':
+      case 'SIGNAL': {
+        const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         config.channels.signal = {
           enabled: true,
           phoneNumber: channel.config.phoneNumber,
+          dmPolicy,
           allowFrom: channel.config.allowlist || []
         }
         break
+      }
 
       case 'GOOGLE_CHAT':
         config.channels.googlechat = {

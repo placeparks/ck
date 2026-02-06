@@ -79,7 +79,8 @@ export async function deployInstance(
     // Serialized config; the start command writes it to the expected file path
     envVars.OPENCLAW_CONFIG = JSON.stringify(openclawConfig)
     // Gateway token required by OpenClaw (generate a random one per instance)
-    envVars.OPENCLAW_GATEWAY_TOKEN = crypto.randomUUID()
+    const gatewayToken = crypto.randomUUID()
+    envVars.OPENCLAW_GATEWAY_TOKEN = gatewayToken
 
     // --- Create Railway service (image + env vars, auto-deploys) ---
     const { id: serviceId } = await railway.createService(
@@ -88,11 +89,11 @@ export async function deployInstance(
       envVars
     )
 
-    // Persist the Railway service ID immediately
+    // Persist the Railway service ID and gateway token immediately
     try {
       await prisma.instance.update({
         where: { id: instance.id },
-        data: { containerId: serviceId },
+        data: { containerId: serviceId, gatewayToken },
       })
     } catch (err) {
       console.warn('⚠️  Failed to persist containerId (will retry later):', err)
