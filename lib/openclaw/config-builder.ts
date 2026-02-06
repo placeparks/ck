@@ -25,6 +25,13 @@ export interface UserConfiguration {
   dmPolicy?: string
 }
 
+/** Coerce a value that may be a comma-separated string or an array into a string[] */
+function toArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.map(String)
+  if (typeof val === 'string' && val.trim()) return val.split(',').map(s => s.trim()).filter(Boolean)
+  return []
+}
+
 const defaultModels: Record<string, string> = {
   ANTHROPIC: 'anthropic/claude-opus-4-5',
   OPENAI: 'openai/gpt-5.2',
@@ -94,7 +101,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       case 'WHATSAPP': {
         const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         const groupPolicy = channel.config.groupPolicy || 'allowlist'
-        const groups = channel.config.groups || []
+        const groups = toArray(channel.config.groups)
         const groupsConfig: any = {}
         if (groupPolicy === 'open') {
           groupsConfig['*'] = { requireMention: channel.config.requireMention || false }
@@ -106,7 +113,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
         config.channels.whatsapp = {
           enabled: true,
           dmPolicy,
-          allowFrom: channel.config.allowlist || [],
+          allowFrom: toArray(channel.config.allowlist),
           ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig })
         }
         break
@@ -115,7 +122,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       case 'TELEGRAM': {
         const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         const groupPolicy = channel.config.groupPolicy || 'allowlist'
-        const groups = channel.config.groups || []
+        const groups = toArray(channel.config.groups)
         const groupsConfig: any = {}
         if (groupPolicy === 'open') {
           groupsConfig['*'] = { requireMention: channel.config.requireMention || false }
@@ -128,7 +135,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
           enabled: true,
           botToken: channel.config.botToken,
           dmPolicy,
-          allowFrom: channel.config.allowlist || [],
+          allowFrom: toArray(channel.config.allowlist),
           ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig })
         }
         break
@@ -137,7 +144,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       case 'DISCORD': {
         const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         const groupPolicy = channel.config.groupPolicy || 'allowlist'
-        const guilds = channel.config.groups || []
+        const guilds = toArray(channel.config.groups)
         const guildsConfig: any = {}
         if (groupPolicy === 'open') {
           guildsConfig['*'] = { requireMention: channel.config.requireMention || false }
@@ -152,7 +159,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
           applicationId: channel.config.applicationId,
           dm: {
             policy: dmPolicy,
-            allowFrom: channel.config.allowlist || []
+            allowFrom: toArray(channel.config.allowlist)
           },
           ...(Object.keys(guildsConfig).length > 0 && { guilds: guildsConfig })
         }
@@ -167,7 +174,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
           appToken: channel.config.appToken,
           dm: {
             policy: dmPolicy,
-            allowFrom: channel.config.allowlist || []
+            allowFrom: toArray(channel.config.allowlist)
           }
         }
         break
@@ -179,7 +186,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
           enabled: true,
           phoneNumber: channel.config.phoneNumber,
           dmPolicy,
-          allowFrom: channel.config.allowlist || []
+          allowFrom: toArray(channel.config.allowlist)
         }
         break
       }
@@ -250,7 +257,7 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
           enabled: true,
           username: channel.config.username,
           oauthToken: channel.config.oauthToken,
-          channels: channel.config.channels || []
+          channels: toArray(channel.config.channels)
         }
         break
 

@@ -299,7 +299,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
             <div>
               <Label className="text-sm">DM Allowlist</Label>
               <Input
-                value={(config.allowlist || []).join(', ')}
+                value={Array.isArray(config.allowlist) ? config.allowlist.join(', ') : (config.allowlist || '')}
                 onChange={(e) => setConfig({
                   ...config,
                   allowlist: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -335,7 +335,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
             <div>
               <Label className="text-sm">Allowed Groups</Label>
               <Input
-                value={(config.groups || []).join(', ')}
+                value={Array.isArray(config.groups) ? config.groups.join(', ') : (config.groups || '')}
                 onChange={(e) => setConfig({
                   ...config,
                   groups: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean)
