@@ -279,8 +279,38 @@ export async function startInstance(instanceId: string): Promise<void> {
   if (!instance) throw new Error('Instance not found')
 
   const railway = new RailwayClient()
-  const containerId = await ensureContainerId(railway, instance)
-  await railway.redeployService(containerId)
+  let containerId = await ensureContainerId(railway, instance)
+
+  try {
+    await railway.redeployService(containerId)
+  } catch (err: any) {
+    const msg = String(err?.message || '').toLowerCase()
+    if (msg.includes('not authorized') || msg.includes('not found')) {
+      // Service ID may be stale (deleted on Railway side). Re-lookup by name.
+      console.warn(`[Deploy] redeployService failed (${err.message}), re-looking up service by name...`)
+      const freshId = instance.containerName
+        ? await railway.findServiceByName(instance.containerName)
+        : null
+
+      if (freshId && freshId !== containerId) {
+        console.log(`[Deploy] Found fresh service ID: ${freshId} (was: ${containerId})`)
+        await prisma.instance.update({
+          where: { id: instanceId },
+          data: { containerId: freshId },
+        })
+        containerId = freshId
+        await railway.redeployService(containerId)
+      } else if (!freshId) {
+        throw new Error(
+          'Railway service no longer exists. Please redeploy your instance from the onboard page.'
+        )
+      } else {
+        throw err // Same ID, genuine auth issue
+      }
+    } else {
+      throw err
+    }
+  }
 
   await prisma.instance.update({
     where: { id: instanceId },
@@ -300,13 +330,49 @@ export async function restartInstance(instanceId: string): Promise<void> {
   })
 
   const railway = new RailwayClient()
-  const containerId = await ensureContainerId(railway, instance)
-  const deployment = await railway.getLatestDeployment(containerId)
+  let containerId = await ensureContainerId(railway, instance)
 
-  if (deployment && deployment.status === 'SUCCESS') {
-    await railway.restartDeployment(deployment.id)
-  } else {
-    await railway.redeployService(containerId)
+  const doRestart = async (serviceId: string) => {
+    const deployment = await railway.getLatestDeployment(serviceId)
+    if (deployment && deployment.status === 'SUCCESS') {
+      await railway.restartDeployment(deployment.id)
+    } else {
+      await railway.redeployService(serviceId)
+    }
+  }
+
+  try {
+    await doRestart(containerId)
+  } catch (err: any) {
+    const msg = String(err?.message || '').toLowerCase()
+    if (msg.includes('not authorized') || msg.includes('not found')) {
+      console.warn(`[Deploy] restart failed (${err.message}), re-looking up service by name...`)
+      const freshId = instance.containerName
+        ? await railway.findServiceByName(instance.containerName)
+        : null
+
+      if (freshId && freshId !== containerId) {
+        console.log(`[Deploy] Found fresh service ID: ${freshId} (was: ${containerId})`)
+        await prisma.instance.update({
+          where: { id: instanceId },
+          data: { containerId: freshId },
+        })
+        containerId = freshId
+        await doRestart(containerId)
+      } else if (!freshId) {
+        await prisma.instance.update({
+          where: { id: instanceId },
+          data: { status: InstanceStatus.ERROR },
+        })
+        throw new Error(
+          'Railway service no longer exists. Please redeploy your instance from the onboard page.'
+        )
+      } else {
+        throw err
+      }
+    } else {
+      throw err
+    }
   }
 
   await prisma.instance.update({
@@ -336,8 +402,46 @@ export async function checkInstanceHealth(instanceId: string): Promise<boolean> 
     if (!instance) return false
 
     const railway = new RailwayClient()
-    const containerId = await ensureContainerId(railway, instance)
-    const deployment = await railway.getLatestDeployment(containerId)
+    let containerId: string
+    try {
+      containerId = await ensureContainerId(railway, instance)
+    } catch {
+      // Service doesn't exist on Railway — mark as error
+      await prisma.instance.update({
+        where: { id: instanceId },
+        data: { lastHealthCheck: new Date(), status: InstanceStatus.ERROR },
+      })
+      return false
+    }
+
+    let deployment
+    try {
+      deployment = await railway.getLatestDeployment(containerId)
+    } catch (err: any) {
+      const msg = String(err?.message || '').toLowerCase()
+      if (msg.includes('not authorized') || msg.includes('not found')) {
+        // Stale containerId — try to refresh
+        const freshId = instance.containerName
+          ? await railway.findServiceByName(instance.containerName)
+          : null
+        if (freshId && freshId !== containerId) {
+          await prisma.instance.update({
+            where: { id: instanceId },
+            data: { containerId: freshId },
+          })
+          deployment = await railway.getLatestDeployment(freshId)
+        } else {
+          await prisma.instance.update({
+            where: { id: instanceId },
+            data: { lastHealthCheck: new Date(), status: InstanceStatus.ERROR },
+          })
+          return false
+        }
+      } else {
+        throw err
+      }
+    }
+
     const isHealthy = deployment?.status === 'SUCCESS'
 
     await prisma.instance.update({
