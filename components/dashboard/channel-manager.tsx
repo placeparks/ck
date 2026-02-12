@@ -132,7 +132,8 @@ const dmPolicyOptions = [
 
 const groupPolicyOptions = [
   { value: 'allowlist', label: 'Allowlist only', description: 'Bot only responds in allowed groups' },
-  { value: 'open', label: 'Open', description: 'Bot responds in any group' },
+  { value: 'open', label: 'Open', description: 'Bot responds in any group (requires @mention by default)' },
+  { value: 'disabled', label: 'Disabled', description: 'Bot ignores all group messages' },
 ]
 
 interface Channel {
@@ -352,7 +353,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
               <input
                 type="checkbox"
                 id={`requireMention-${channelType}`}
-                checked={config.requireMention || false}
+                checked={config.requireMention !== false}
                 onChange={(e) => setConfig({ ...config, requireMention: e.target.checked })}
                 className="rounded"
               />
@@ -414,7 +415,7 @@ export default function ChannelManager({ channels, onRefresh }: ChannelManagerPr
                 <Label className="text-sm">Channel Type</Label>
                 <select
                   value={newChannelType}
-                  onChange={(e) => { setNewChannelType(e.target.value); setNewChannelConfig({ dmPolicy: 'pairing', groupPolicy: 'allowlist' }) }}
+                  onChange={(e) => { setNewChannelType(e.target.value); setNewChannelConfig({ dmPolicy: 'pairing', groupPolicy: 'allowlist', requireMention: true }) }}
                   className="mt-1 w-full border rounded-md px-3 py-2 text-sm bg-white"
                 >
                   <option value="">Select a channel...</option>

@@ -101,20 +101,30 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       case 'WHATSAPP': {
         const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         const groupPolicy = channel.config.groupPolicy || 'allowlist'
+        const allowFrom = toArray(channel.config.allowlist)
+        const groupAllowFrom = toArray(channel.config.groupAllowFrom || channel.config.allowlist)
         const groups = toArray(channel.config.groups)
+
+        // Build groups map per docs: { "groupId": { requireMention: bool } }
         const groupsConfig: any = {}
         if (groupPolicy === 'open') {
-          groupsConfig['*'] = { requireMention: channel.config.requireMention || false }
+          groupsConfig['*'] = { requireMention: channel.config.requireMention !== false }
         } else if (groups.length > 0) {
           for (const g of groups) {
-            groupsConfig[g] = { requireMention: channel.config.requireMention || false }
+            groupsConfig[g] = { requireMention: channel.config.requireMention !== false }
           }
         }
+
         config.channels.whatsapp = {
           enabled: true,
           dmPolicy,
-          allowFrom: toArray(channel.config.allowlist),
-          ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig })
+          // When dmPolicy is "open", docs require allowFrom: ["*"]
+          allowFrom: dmPolicy === 'open' ? ['*'] : allowFrom,
+          groupPolicy,
+          ...(groupAllowFrom.length > 0 && { groupAllowFrom }),
+          ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig }),
+          sendReadReceipts: true,
+          configWrites: true,
         }
         break
       }
@@ -122,21 +132,35 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       case 'TELEGRAM': {
         const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         const groupPolicy = channel.config.groupPolicy || 'allowlist'
+        const allowFrom = toArray(channel.config.allowlist)
+        const groupAllowFrom = toArray(channel.config.groupAllowFrom || channel.config.allowlist)
         const groups = toArray(channel.config.groups)
+
+        // Groups map per docs: { "groupId": { requireMention: bool, groupPolicy, ... } }
         const groupsConfig: any = {}
         if (groupPolicy === 'open') {
-          groupsConfig['*'] = { requireMention: channel.config.requireMention || false }
+          groupsConfig['*'] = {
+            requireMention: channel.config.requireMention !== false,
+            groupPolicy: 'open',
+          }
         } else if (groups.length > 0) {
           for (const g of groups) {
-            groupsConfig[g] = { requireMention: channel.config.requireMention || false }
+            groupsConfig[g] = {
+              requireMention: channel.config.requireMention !== false,
+              groupPolicy: 'allowlist',
+              ...(groupAllowFrom.length > 0 && { groupAllowFrom }),
+            }
           }
         }
+
         config.channels.telegram = {
           enabled: true,
           botToken: channel.config.botToken,
           dmPolicy,
-          allowFrom: toArray(channel.config.allowlist),
-          ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig })
+          allowFrom: dmPolicy === 'open' ? ['*'] : allowFrom,
+          ...(groupAllowFrom.length > 0 && { groupAllowFrom }),
+          ...(Object.keys(groupsConfig).length > 0 && { groups: groupsConfig }),
+          configWrites: true,
         }
         break
       }
@@ -144,24 +168,31 @@ export function generateOpenClawConfig(userConfig: UserConfiguration) {
       case 'DISCORD': {
         const dmPolicy = channel.config.dmPolicy || userConfig.dmPolicy || 'pairing'
         const groupPolicy = channel.config.groupPolicy || 'allowlist'
-        const guilds = toArray(channel.config.groups)
+        const allowFrom = toArray(channel.config.allowlist)
+        const guilds = toArray(channel.config.groups || channel.config.guilds)
+
+        // Guilds map per docs: { "guildId": { requireMention: bool, users: [], channels: {} } }
         const guildsConfig: any = {}
         if (groupPolicy === 'open') {
-          guildsConfig['*'] = { requireMention: channel.config.requireMention || false }
+          guildsConfig['*'] = { requireMention: channel.config.requireMention !== false }
         } else if (guilds.length > 0) {
           for (const g of guilds) {
-            guildsConfig[g] = { requireMention: channel.config.requireMention || false }
+            guildsConfig[g] = { requireMention: channel.config.requireMention !== false }
           }
         }
+
         config.channels.discord = {
           enabled: true,
           token: channel.config.token,
           applicationId: channel.config.applicationId,
+          groupPolicy,
           dm: {
+            enabled: dmPolicy !== 'disabled',
             policy: dmPolicy,
-            allowFrom: toArray(channel.config.allowlist)
+            allowFrom: dmPolicy === 'open' ? ['*'] : allowFrom,
           },
-          ...(Object.keys(guildsConfig).length > 0 && { guilds: guildsConfig })
+          ...(Object.keys(guildsConfig).length > 0 && { guilds: guildsConfig }),
+          configWrites: true,
         }
         break
       }

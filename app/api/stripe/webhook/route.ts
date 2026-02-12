@@ -167,11 +167,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (!isValidUserConfiguration(config)) {
     console.error('❌ Invalid or missing configuration for user:', userId)
     console.error('User found:', !!user)
-    console.error('PendingConfig:', user?.pendingConfig)
+    console.error('PendingConfig type:', typeof user?.pendingConfig)
+    console.error('PendingConfig keys:', user?.pendingConfig ? Object.keys(user.pendingConfig as any) : 'null')
+
+    // If no pendingConfig, check if user already has a running instance (upgrade case)
+    const existingInstance = await prisma.instance.findUnique({ where: { userId } })
+    if (existingInstance) {
+      console.log('ℹ️  User already has an instance, subscription updated — skipping deploy')
+      return
+    }
+
+    console.error('❌ No valid pending config and no existing instance — cannot deploy')
     return
   }
 
   console.log('✅ Configuration found, starting deployment...')
+  console.log('   Provider:', config.provider)
+  console.log('   Channels:', config.channels?.length || 0)
 
   // Encrypt API keys before storing
   const encryptedApiKey = encrypt(config.apiKey)
@@ -213,44 +225,73 @@ async function deployAndConfigure(
 
   // Save configuration to database — always, even if deploy had errors.
   // This ensures channels/config are accessible from dashboard for retry/redeploy.
-  const existingConfig = await prisma.configuration.findUnique({
-    where: { instanceId: deployment.instanceId }
-  })
-
-  if (!existingConfig) {
-    await prisma.configuration.create({
-      data: {
-        instanceId: deployment.instanceId,
-        provider: config.provider,
-        apiKey: encryptedApiKey,
-        model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
-        webSearchEnabled: config.webSearchEnabled || false,
-        braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
-        browserEnabled: config.browserEnabled || false,
-        ttsEnabled: config.ttsEnabled || false,
-        elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
-        canvasEnabled: config.canvasEnabled || false,
-        cronEnabled: config.cronEnabled || false,
-        memoryEnabled: config.memoryEnabled || false,
-        workspace: config.workspace,
-        agentName: config.agentName,
-        systemPrompt: config.systemPrompt,
-        thinkingMode: config.thinkingMode || 'high',
-        sessionMode: config.sessionMode || 'per-sender',
-        dmPolicy: config.dmPolicy || 'pairing',
-        fullConfig: config as unknown as Prisma.InputJsonObject,
-        channels: {
-          create: config.channels.map((channel: any) => ({
-            type: channel.type,
-            enabled: true,
-            config: channel.config,
-            botUsername: channel.config?.botUsername,
-            phoneNumber: channel.config?.phoneNumber,
-            inviteLink: channel.config?.inviteLink
-          }))
-        }
-      }
+  try {
+    const existingConfig = await prisma.configuration.findUnique({
+      where: { instanceId: deployment.instanceId }
     })
+
+    if (existingConfig) {
+      // Update existing config (e.g., upgrading from free to paid)
+      await prisma.configuration.update({
+        where: { instanceId: deployment.instanceId },
+        data: {
+          provider: config.provider,
+          apiKey: encryptedApiKey,
+          model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
+          webSearchEnabled: config.webSearchEnabled || false,
+          braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
+          browserEnabled: config.browserEnabled || false,
+          ttsEnabled: config.ttsEnabled || false,
+          elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
+          canvasEnabled: config.canvasEnabled || false,
+          cronEnabled: config.cronEnabled || false,
+          memoryEnabled: config.memoryEnabled || false,
+          workspace: config.workspace,
+          agentName: config.agentName,
+          systemPrompt: config.systemPrompt,
+          thinkingMode: config.thinkingMode || 'high',
+          sessionMode: config.sessionMode || 'per-sender',
+          dmPolicy: config.dmPolicy || 'pairing',
+          fullConfig: config as unknown as Prisma.InputJsonObject,
+        }
+      })
+    } else {
+      await prisma.configuration.create({
+        data: {
+          instanceId: deployment.instanceId,
+          provider: config.provider,
+          apiKey: encryptedApiKey,
+          model: config.model || (config.provider === 'ANTHROPIC' ? 'claude-opus-4-5' : 'gpt-5.2'),
+          webSearchEnabled: config.webSearchEnabled || false,
+          braveApiKey: config.braveApiKey ? encrypt(config.braveApiKey) : null,
+          browserEnabled: config.browserEnabled || false,
+          ttsEnabled: config.ttsEnabled || false,
+          elevenlabsApiKey: config.elevenlabsApiKey ? encrypt(config.elevenlabsApiKey) : null,
+          canvasEnabled: config.canvasEnabled || false,
+          cronEnabled: config.cronEnabled || false,
+          memoryEnabled: config.memoryEnabled || false,
+          workspace: config.workspace,
+          agentName: config.agentName,
+          systemPrompt: config.systemPrompt,
+          thinkingMode: config.thinkingMode || 'high',
+          sessionMode: config.sessionMode || 'per-sender',
+          dmPolicy: config.dmPolicy || 'pairing',
+          fullConfig: config as unknown as Prisma.InputJsonObject,
+          channels: {
+            create: config.channels.map((channel: any) => ({
+              type: channel.type,
+              enabled: true,
+              config: channel.config || {},
+              botUsername: channel.config?.botUsername,
+              phoneNumber: channel.config?.phoneNumber,
+              inviteLink: channel.config?.inviteLink
+            }))
+          }
+        }
+      })
+    }
+  } catch (configErr: any) {
+    console.error(`⚠️ Failed to save configuration (deployment may still succeed):`, configErr.message)
   }
 
   // Clean up pending config

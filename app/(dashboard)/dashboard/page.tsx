@@ -21,6 +21,7 @@ import WebhookManager from '@/components/dashboard/webhook-manager'
 import HeartbeatConfig from '@/components/dashboard/heartbeat-config'
 import WebChatWidget from '@/components/dashboard/webchat-widget'
 import LiveChat from '@/components/dashboard/live-chat'
+import ChannelAccess from '@/components/dashboard/channel-access'
 import OnboardingTour from '@/components/dashboard/onboarding-tour'
 
 export default function DashboardPage() {
@@ -292,6 +293,12 @@ export default function DashboardPage() {
               actionLoading={actionLoading}
             />
 
+            {/* Channel Access & Setup */}
+            <ChannelAccess
+              channels={instance.channels || instance.config?.channels || []}
+              instanceStatus={instance.status}
+            />
+
             <div className="grid lg:grid-cols-2 gap-6">
               {/* Quick Stats */}
               <Card>
@@ -303,7 +310,7 @@ export default function DashboardPage() {
                     <div className="text-center p-4 bg-purple-50 rounded-lg">
                       <MessageSquare className="h-6 w-6 text-purple-600 mx-auto mb-2" />
                       <p className="text-2xl font-bold">
-                        {instance.config?.channels?.filter((c: any) => c.enabled).length || 0}
+                        {instance.config?.channels?.filter((c: any) => c.enabled !== false).length || 0}
                       </p>
                       <p className="text-sm text-gray-600">Active Channels</p>
                     </div>
