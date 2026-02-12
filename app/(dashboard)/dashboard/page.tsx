@@ -20,6 +20,7 @@ import CronManager from '@/components/dashboard/cron-manager'
 import WebhookManager from '@/components/dashboard/webhook-manager'
 import HeartbeatConfig from '@/components/dashboard/heartbeat-config'
 import WebChatWidget from '@/components/dashboard/webchat-widget'
+import LiveChat from '@/components/dashboard/live-chat'
 import OnboardingTour from '@/components/dashboard/onboarding-tour'
 
 export default function DashboardPage() {
@@ -244,10 +245,14 @@ export default function DashboardPage() {
       {/* Main Content with Tabs */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid grid-cols-6 w-full max-w-2xl">
+          <TabsList className="grid grid-cols-7 w-full max-w-3xl">
             <TabsTrigger value="overview" className="flex items-center gap-1.5">
               <Activity className="h-4 w-4" />
               <span className="hidden sm:inline">Overview</span>
+            </TabsTrigger>
+            <TabsTrigger value="chat" className="flex items-center gap-1.5">
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">Chat</span>
             </TabsTrigger>
             <TabsTrigger value="channels" className="flex items-center gap-1.5">
               <Wifi className="h-4 w-4" />
@@ -364,6 +369,15 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* Chat Tab */}
+          <TabsContent value="chat">
+            <LiveChat
+              instanceId={instance.id}
+              instanceStatus={instance.status}
+              agentName={instance.config?.agentName}
+            />
           </TabsContent>
 
           {/* Channels Tab */}
